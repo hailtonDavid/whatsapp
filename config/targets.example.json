@@ -1,0 +1,27 @@
+{
+  "interval_seconds": 60,
+  "scrolls_per_target": 8,
+  "delay_between_scrolls": 1.0,
+  "delay_between_targets": 2.0,
+  "append_only_new_messages": true,
+  "targets": [
+    {
+      "id": "grupo_exemplo",
+      "type": "group",
+      "name": "NOME EXATO DO GRUPO AQUI",
+      "enabled": true
+    },
+    {
+      "id": "contato_exemplo",
+      "type": "contact",
+      "name": "NOME DO CONTATO AQUI",
+      "enabled": true
+    },
+    {
+      "id": "telefone_exemplo",
+      "type": "phone",
+      "phone": "5562999999999",
+      "enabled": false
+    }
+  ]
+}
