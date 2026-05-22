@@ -68,6 +68,11 @@ profile_whatsapp*/
 profile_whatsapp_v*/
 
 # Dados exportados e estado local
-exports/
-state/
+exports/*
+!exports/.gitkeep
+state/*
+!state/.gitkeep
 config/targets.json
+
+# Scripts legados (v3)
+configurar_v3.ps1

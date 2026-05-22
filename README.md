@@ -1,5 +1,10 @@
 # WhatsApp Web Automation v4 — varredura automática por grupos/contatos/telefones
 
+Repositórios:
+
+- GitHub: https://github.com/hailtonDavid/whatsapp
+- Gitea: http://localhost:3000/hailtonDavid/whatsapp
+
 Esta versão permite configurar uma lista de grupos, contatos ou telefones em um arquivo JSON.
 O programa abre cada conversa automaticamente, baixa as mensagens visíveis, rola o histórico e repete o ciclo.
 
@@ -113,6 +118,26 @@ Também existe um estado de deduplicação:
 
 ```text
 state/message_state.json
+```
+
+## Git — sincronizar GitHub e Gitea
+
+Um único push envia para os dois remotos:
+
+```powershell
+git push origin main
+```
+
+Ou use o atalho:
+
+```powershell
+.\scripts\git-push-both.ps1
+```
+
+Para (re)configurar os remotos:
+
+```powershell
+.\scripts\git-ensure-dual-remotes.ps1
 ```
 
 ## Importante
