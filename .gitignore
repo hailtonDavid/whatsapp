@@ -1,9 +1,14 @@
+# =============================================================================
 # Ambiente e segredos
+# =============================================================================
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
+.env.gitea.local
 
+# =============================================================================
 # Python
+# =============================================================================
 __pycache__/
 *.py[cod]
 *$py.class
@@ -29,6 +34,8 @@ MANIFEST
 pip-wheel-metadata/
 *.manifest
 *.spec
+pip-log.txt
+pip-delete-this-directory.txt
 
 # Virtualenv
 venv/
@@ -47,32 +54,63 @@ htmlcov/
 coverage.xml
 *.cover
 .hypothesis/
+.cache/
 
-# IDEs
+# =============================================================================
+# Playwright / navegador
+# =============================================================================
+profile_whatsapp*/
+playwright-report/
+test-results/
+blob-report/
+.playwright/
+ms-playwright/
+
+# =============================================================================
+# Dados locais do projeto (runtime)
+# =============================================================================
+exports/**
+!exports/.gitkeep
+state/**
+!state/.gitkeep
+*.corrompido.json
+
+# Config local (mantém apenas o exemplo versionado)
+config/*
+!config/targets.example.json
+
+# =============================================================================
+# Scripts e versões legadas
+# =============================================================================
+configurar_v3.ps1
+rodar_scan_v3.bat
+rodar_scan.bat
+
+# =============================================================================
+# IDEs e editores
+# =============================================================================
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
+*.code-workspace
 
-# SO
+# =============================================================================
+# Sistema operacional
+# =============================================================================
 .DS_Store
 Thumbs.db
 desktop.ini
+ehthumbs.db
+Icon?
 
-# Logs
+# =============================================================================
+# Logs, temporários e backups
+# =============================================================================
 *.log
-
-# Perfis do navegador (sessão WhatsApp Web)
-profile_whatsapp*/
-profile_whatsapp_v*/
-
-# Dados exportados e estado local
-exports/*
-!exports/.gitkeep
-state/*
-!state/.gitkeep
-config/targets.json
-
-# Scripts legados (v3)
-configurar_v3.ps1
+*.tmp
+*.temp
+*.bak
+*.old
+*.orig
