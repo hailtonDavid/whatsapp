@@ -14,7 +14,7 @@
                                         "wheel"
                                     ],
                         "stderr":  "",
-                        "elapsed_ms":  1279
+                        "elapsed_ms":  2296
                     },
                     {
                         "stdout":  "",
@@ -29,7 +29,7 @@
                                         "requirements.txt"
                                     ],
                         "stderr":  "",
-                        "elapsed_ms":  1336
+                        "elapsed_ms":  1398
                     },
                     {
                         "stdout":  "",
@@ -44,7 +44,7 @@
                                         "requirements-dev.txt"
                                     ],
                         "stderr":  "",
-                        "elapsed_ms":  1413
+                        "elapsed_ms":  1352
                     },
                     {
                         "stdout":  "",
@@ -61,10 +61,10 @@
                                         "mypy"
                                     ],
                         "stderr":  "",
-                        "elapsed_ms":  1271
+                        "elapsed_ms":  1257
                     },
                     {
-                        "stdout":  "..............                                                           [100%]\r\n14 passed in 2.86s\r\n\r\n",
+                        "stdout":  "..............                                                           [100%]\r\n14 passed in 2.63s\r\n\r\n",
                         "returncode":  0,
                         "command":  [
                                         "D:\\Sistemas\\whatsapp\\venv\\Scripts\\pytest.exe",
@@ -72,7 +72,7 @@
                                         "--maxfail=5"
                                     ],
                         "stderr":  "",
-                        "elapsed_ms":  4281
+                        "elapsed_ms":  4301
                     }
                 ],
     "root_hint_container":  "/mnt/d/Sistemas/whatsapp",
@@ -82,7 +82,7 @@
                   "passed":  5
               },
     "producer":  "dsm-external-test-script-v4",
-    "started_at":  "2026-05-23T18:29:21.1872279-03:00",
+    "started_at":  "2026-05-23T18:30:42.2583453-03:00",
     "detection_notes":  "script_version=4; has_py_tests=True; has_py_repo=True; deps_auto_install=true; mode=pytest_suite",
     "project_root":  "D:\\Sistemas\\whatsapp",
     "script_version":  "4",
