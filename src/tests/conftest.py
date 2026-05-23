@@ -6,17 +6,9 @@ import os
 from pathlib import Path
 
 import pytest
+from playwright.async_api import Page, async_playwright
 
 from app import create_app
-
-
-@pytest.fixture(scope="session")
-def browser_type_launch_args(browser_type_launch_args):
-    channel = os.getenv("WA_BROWSER_CHANNEL", "msedge")
-    return {
-        **browser_type_launch_args,
-        "channel": channel,
-    }
 
 
 @pytest.fixture
@@ -45,3 +37,17 @@ def app(env_file: Path):
 @pytest.fixture
 def client(app):
     return app.test_client()
+
+
+@pytest.fixture
+async def async_page() -> Page:
+    """Página Playwright assíncrona (API async) para testes E2E."""
+    channel = os.getenv("WA_BROWSER_CHANNEL", "msedge")
+    playwright = await async_playwright().start()
+    browser = await playwright.chromium.launch(headless=True, channel=channel)
+    page = await browser.new_page()
+    try:
+        yield page
+    finally:
+        await browser.close()
+        await playwright.stop()

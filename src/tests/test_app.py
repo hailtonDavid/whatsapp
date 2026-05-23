@@ -1,4 +1,4 @@
-"""Testes da aplicação Flask e integração com WhatsApp Web."""
+"""Testes da aplicação Flask e E2E com WhatsApp Web."""
 
 from __future__ import annotations
 
@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 from dotenv import load_dotenv
+from playwright.async_api import Page
 
 from app import WHATSAPP_LOGIN_SELECTOR, WA_URL, create_app
 
-pytestmark = pytest.mark.browser
 
 def test_env_file_is_loaded(env_file: Path) -> None:
     load_dotenv(env_file, override=True)
@@ -23,7 +23,8 @@ def test_env_file_is_loaded(env_file: Path) -> None:
     assert app.config["APP_CONFIG"].headless is True
 
 
-def test_index_returns_200_ok(client) -> None:
+@pytest.mark.asyncio
+async def test_index_returns_200_ok(client) -> None:
     response = client.get("/")
 
     assert response.status_code == 200
@@ -34,9 +35,10 @@ def test_index_returns_200_ok(client) -> None:
 
 
 @pytest.mark.browser
-def test_whatsapp_web_login_selector(page) -> None:
-    page.goto(WA_URL, wait_until="domcontentloaded", timeout=60_000)
-    page.wait_for_selector(WHATSAPP_LOGIN_SELECTOR, timeout=60_000, state="visible")
+@pytest.mark.asyncio
+async def test_whatsapp_web_login_selector(async_page: Page) -> None:
+    await async_page.goto(WA_URL, wait_until="domcontentloaded", timeout=60_000)
+    await async_page.wait_for_selector(WHATSAPP_LOGIN_SELECTOR, timeout=60_000, state="visible")
 
-    login_locator = page.locator(WHATSAPP_LOGIN_SELECTOR).first
-    assert login_locator.is_visible()
+    login_locator = async_page.locator(WHATSAPP_LOGIN_SELECTOR).first
+    assert await login_locator.is_visible()

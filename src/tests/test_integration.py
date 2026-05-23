@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -18,7 +17,8 @@ from whatsapp_auto_downloader import AppConfig, load_app_config, open_whatsapp
 pytestmark = pytest.mark.integration
 
 
-def test_api_main_route_is_active(client) -> None:
+@pytest.mark.asyncio
+async def test_api_main_route_is_active(client) -> None:
     response = client.get("/")
 
     assert response.status_code == 200
@@ -28,14 +28,28 @@ def test_api_main_route_is_active(client) -> None:
     assert "whatsapp_url" in payload
 
 
-def test_api_health_route_is_active(client) -> None:
+@pytest.mark.asyncio
+async def test_api_health_route_is_active(client) -> None:
     response = client.get("/health")
 
     assert response.status_code == 200
     assert response.get_json() == {"status": "ok"}
 
 
-def test_reads_env_variables_from_dotenv(env_file: Path) -> None:
+@pytest.mark.asyncio
+async def test_flask_routes_active_within_async_loop(client) -> None:
+    health = client.get("/health")
+    index = client.get("/")
+
+    assert health.status_code == 200
+    assert index.status_code == 200
+    assert health.get_json()["status"] == "ok"
+    assert index.get_json()["status"] == "ok"
+    assert index.get_json()["env_loaded"] is True
+
+
+@pytest.mark.asyncio
+async def test_reads_env_variables_from_dotenv(env_file: Path) -> None:
     load_dotenv(env_file, override=True)
     config = load_app_config(env_file=env_file)
     app = create_app(env_file=env_file)
@@ -50,7 +64,8 @@ def test_reads_env_variables_from_dotenv(env_file: Path) -> None:
     assert app.config["ENV_FILE"] == str(env_file)
 
 
-def test_flask_api_reflects_loaded_env(client) -> None:
+@pytest.mark.asyncio
+async def test_flask_api_reflects_loaded_env(client) -> None:
     response = client.get("/")
 
     payload = response.get_json()
@@ -58,7 +73,43 @@ def test_flask_api_reflects_loaded_env(client) -> None:
     assert payload["profile_dir"] == "profile_whatsapp_test"
 
 
-def test_playwright_browser_initialization_simulated(
+@pytest.mark.asyncio
+async def test_flask_and_browser_init_integration(
+    client,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    env_file: Path,
+) -> None:
+    api_response = client.get("/")
+    assert api_response.status_code == 200
+    assert api_response.get_json()["profile_dir"] == "profile_whatsapp_test"
+
+    config = load_app_config(env_file=env_file)
+
+    mock_page = AsyncMock()
+    mock_context = MagicMock()
+    mock_context.pages = [mock_page]
+    mock_context.new_page = AsyncMock(return_value=mock_page)
+
+    mock_playwright = AsyncMock()
+    mock_playwright.chromium.launch_persistent_context = AsyncMock(return_value=mock_context)
+
+    mock_factory = MagicMock()
+    mock_factory.start = AsyncMock(return_value=mock_playwright)
+    monkeypatch.setattr("whatsapp_auto_downloader.async_playwright", lambda: mock_factory)
+
+    playwright, context, page = await initialize_browser(config)
+
+    mock_factory.start.assert_awaited_once()
+    mock_page.goto.assert_awaited_once()
+    assert playwright is mock_playwright
+    assert context is mock_context
+    assert page is mock_page
+    assert config.profile_dir.name == "profile_whatsapp_test"
+
+
+@pytest.mark.asyncio
+async def test_playwright_browser_initialization_simulated(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -84,7 +135,7 @@ def test_playwright_browser_initialization_simulated(
 
     monkeypatch.setattr("whatsapp_auto_downloader.async_playwright", lambda: mock_factory)
 
-    playwright, context, page = asyncio.run(initialize_browser(config))
+    playwright, context, page = await initialize_browser(config)
 
     mock_factory.start.assert_awaited_once()
     mock_playwright.chromium.launch_persistent_context.assert_awaited_once()
@@ -97,7 +148,8 @@ def test_playwright_browser_initialization_simulated(
     assert page is mock_page
 
 
-def test_open_whatsapp_uses_empty_context_page_when_no_pages(
+@pytest.mark.asyncio
+async def test_open_whatsapp_uses_empty_context_page_when_no_pages(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -121,16 +173,17 @@ def test_open_whatsapp_uses_empty_context_page_when_no_pages(
     mock_factory.start = AsyncMock(return_value=mock_playwright)
     monkeypatch.setattr("whatsapp_auto_downloader.async_playwright", lambda: mock_factory)
 
-    _, _, page = asyncio.run(open_whatsapp(config))
+    _, _, page = await open_whatsapp(config)
 
     mock_context.new_page.assert_awaited_once()
     assert page is mock_page
 
 
-def test_wait_for_login_element_uses_selector_mock() -> None:
+@pytest.mark.asyncio
+async def test_wait_for_login_element_uses_selector_mock() -> None:
     mock_page = AsyncMock()
 
-    asyncio.run(wait_for_login_element(mock_page, timeout_seconds=45))
+    await wait_for_login_element(mock_page, timeout_seconds=45)
 
     mock_page.wait_for_selector.assert_awaited_once_with(
         WHATSAPP_LOGIN_SELECTOR,
@@ -139,10 +192,11 @@ def test_wait_for_login_element_uses_selector_mock() -> None:
     )
 
 
-def test_wait_for_dynamic_ready_delegates_to_wait_for_function() -> None:
+@pytest.mark.asyncio
+async def test_wait_for_dynamic_ready_delegates_to_wait_for_function() -> None:
     mock_page = AsyncMock()
 
-    asyncio.run(wait_for_dynamic_ready(mock_page, timeout_seconds=25))
+    await wait_for_dynamic_ready(mock_page, timeout_seconds=25)
 
     mock_page.wait_for_function.assert_awaited_once()
     call_args = mock_page.wait_for_function.await_args
@@ -150,15 +204,14 @@ def test_wait_for_dynamic_ready_delegates_to_wait_for_function() -> None:
     assert call_args.kwargs["timeout"] == 25_000
 
 
-def test_wait_for_dynamic_ready_handles_timeout_without_crashing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+@pytest.mark.asyncio
+async def test_wait_for_dynamic_ready_handles_timeout_without_crashing() -> None:
     from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
     mock_page = AsyncMock()
     mock_page.wait_for_function = AsyncMock(side_effect=PlaywrightTimeoutError("timeout"))
 
-    asyncio.run(wait_for_dynamic_ready(mock_page, timeout_seconds=5))
+    await wait_for_dynamic_ready(mock_page, timeout_seconds=5)
 
     mock_page.wait_for_function.assert_awaited_once()
     assert mock_page.wait_for_function.await_args.kwargs["timeout"] == 5_000
