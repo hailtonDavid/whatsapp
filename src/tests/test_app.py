@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 
 from app import WHATSAPP_LOGIN_SELECTOR, WA_URL, create_app
 
+pytestmark = pytest.mark.browser
 
 def test_env_file_is_loaded(env_file: Path) -> None:
     load_dotenv(env_file, override=True)
