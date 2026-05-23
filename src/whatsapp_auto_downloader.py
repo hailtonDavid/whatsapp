@@ -91,8 +91,8 @@ class TargetsConfig:
     targets: List[Target] = field(default_factory=list)
 
 
-def load_app_config() -> AppConfig:
-    load_dotenv(PROJECT_ROOT / ".env")
+def load_app_config(env_file: Path | None = None) -> AppConfig:
+    load_dotenv(env_file or PROJECT_ROOT / ".env")
 
     profile_dir = Path(os.getenv("WA_PROFILE_DIR", "profile_whatsapp_v4"))
     if not profile_dir.is_absolute():

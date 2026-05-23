@@ -1,0 +1,98 @@
+{
+    "results":  [
+                    {
+                        "stdout":  "",
+                        "returncode":  0,
+                        "command":  [
+                                        "D:\\Sistemas\\whatsapp\\venv\\Scripts\\python.exe",
+                                        "-m",
+                                        "pip",
+                                        "install",
+                                        "-q",
+                                        "--disable-pip-version-check",
+                                        "pip",
+                                        "wheel"
+                                    ],
+                        "stderr":  "",
+                        "elapsed_ms":  1232
+                    },
+                    {
+                        "stdout":  "",
+                        "returncode":  0,
+                        "command":  [
+                                        "D:\\Sistemas\\whatsapp\\venv\\Scripts\\python.exe",
+                                        "-m",
+                                        "pip",
+                                        "install",
+                                        "-q",
+                                        "-r",
+                                        "requirements.txt"
+                                    ],
+                        "stderr":  "",
+                        "elapsed_ms":  1329
+                    },
+                    {
+                        "stdout":  "",
+                        "returncode":  0,
+                        "command":  [
+                                        "D:\\Sistemas\\whatsapp\\venv\\Scripts\\python.exe",
+                                        "-m",
+                                        "pip",
+                                        "install",
+                                        "-q",
+                                        "pytest",
+                                        "ruff"
+                                    ],
+                        "stderr":  "",
+                        "elapsed_ms":  6311
+                    },
+                    {
+                        "stdout":  "",
+                        "returncode":  0,
+                        "command":  [
+                                        "D:\\Sistemas\\whatsapp\\venv\\Scripts\\python.exe",
+                                        "-m",
+                                        "compileall",
+                                        "-q",
+                                        "src"
+                                    ],
+                        "stderr":  "",
+                        "elapsed_ms":  1294
+                    },
+                    {
+                        "stdout":  "\r\nno tests ran in 0.12s\r\n\r\n",
+                        "returncode":  5,
+                        "command":  [
+                                        "D:\\Sistemas\\whatsapp\\venv\\Scripts\\pytest.exe",
+                                        "-q",
+                                        "--maxfail=5",
+                                        "src"
+                                    ],
+                        "stderr":  "",
+                        "elapsed_ms":  3038
+                    },
+                    {
+                        "stdout":  "All checks passed!\n\r\n",
+                        "returncode":  0,
+                        "command":  [
+                                        "D:\\Sistemas\\whatsapp\\venv\\Scripts\\ruff.exe",
+                                        "check",
+                                        "src"
+                                    ],
+                        "stderr":  "",
+                        "elapsed_ms":  5307
+                    }
+                ],
+    "root_hint_container":  "/mnt/d/Sistemas/whatsapp",
+    "stats":  {
+                  "failed":  1,
+                  "total":  6,
+                  "passed":  5
+              },
+    "producer":  "dsm-external-test-script-v4",
+    "started_at":  "2026-05-23T17:26:45.8626753-03:00",
+    "detection_notes":  "script_version=4; has_py_tests=False; has_py_repo=True; deps_auto_install=true; mode=python_smoke",
+    "project_root":  "D:\\Sistemas\\whatsapp",
+    "script_version":  "4",
+    "project_name":  "WhatsApp"
+}
