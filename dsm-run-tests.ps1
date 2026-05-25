@@ -136,6 +136,25 @@ function Get-VenvPytest {
   return $null
 }
 
+function Invoke-RuffCheck {
+  param([string]$PythonExe = "")
+  $py = $PythonExe
+  if (-not $py) { $py = Get-ProjectPython }
+  if (-not $py) { $py = Get-BootstrapPython }
+  if (-not $py) {
+    return @{
+      command = @("ruff")
+      returncode = -127
+      stdout = ""
+      stderr = "Python nao encontrado para executar Ruff."
+      elapsed_ms = 0
+    }
+  }
+  $target = if (Test-ProjPath "src") { "src" } else { "." }
+  Write-Host "Executando: $py -m ruff check $target"
+  return Run-TestCmd @($py, "-m", "ruff", "check", $target)
+}
+
 function Invoke-PyTestRun {
   param([string]$TargetDir = "")
   $pytestExe = Get-VenvPytest
@@ -186,6 +205,7 @@ if ($hasPyTests) {
   if ($py -and (-not $SkipAutoInstall)) {
     foreach ($step in (Install-ProjectTestDeps -PythonExe $py -FullSuite $true)) { $items += $step }
   }
+  $items += Invoke-RuffCheck -PythonExe $py
   $items += Invoke-PyTestRun ""
 } elseif ($hasPyRepo) {
   $notes += "mode=python_smoke"
