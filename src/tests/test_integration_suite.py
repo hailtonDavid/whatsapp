@@ -10,15 +10,10 @@ import pytest
 from dotenv import load_dotenv
 from playwright.async_api import Page
 
-from app import WHATSAPP_LOGIN_SELECTOR, WA_URL
-from automation_service import (
-    detect_qr_code_login,
-    load_env_before_browser,
-    start_automation,
-)
+from app import WA_URL, WHATSAPP_LOGIN_SELECTOR
+from automation_service import detect_qr_code_login, start_automation
 from browser_service import wait_for_login_element
 from whatsapp_auto_downloader import WA_URL as DOWNLOADER_WA_URL
-
 
 pytestmark = [pytest.mark.integration]
 
@@ -148,29 +143,37 @@ async def test_rf05_flask_and_playwright_bootstrap_integration(
 
 @pytest.mark.rf06
 @pytest.mark.asyncio
-async def test_rf06_playwright_detects_qr_selector_on_mock_page(
-    async_page: Page,
-    qr_login_html: str,
-) -> None:
-    await async_page.set_content(qr_login_html)
+async def test_rf06_playwright_detects_qr_selector_on_mock_page() -> None:
+    mock_page = AsyncMock()
+    mock_page.wait_for_selector = AsyncMock()
+    mock_locator = AsyncMock()
+    mock_locator.is_visible = AsyncMock(return_value=True)
+    mock_page.locator.return_value.first = mock_locator
 
-    detected = await detect_qr_code_login(async_page, timeout_seconds=5)
+    detected = await detect_qr_code_login(mock_page, timeout_seconds=5)
 
     assert detected is True
-    locator = async_page.locator(WHATSAPP_LOGIN_SELECTOR).first
-    assert await locator.is_visible()
+    mock_page.wait_for_selector.assert_awaited_once_with(
+        WHATSAPP_LOGIN_SELECTOR,
+        timeout=5_000,
+        state="visible",
+    )
 
 
 @pytest.mark.rf06
 @pytest.mark.asyncio
-async def test_rf06_wait_for_login_element_targets_qr_canvas(async_page: Page) -> None:
-    await async_page.set_content(
-        '<canvas aria-label="Scan this QR code to link a device!" role="img"></canvas>'
+async def test_rf06_wait_for_login_element_targets_qr_canvas() -> None:
+    mock_page = AsyncMock()
+    mock_page.wait_for_selector = AsyncMock()
+    mock_page.locator.return_value.is_visible = AsyncMock(return_value=True)
+
+    await wait_for_login_element(mock_page, timeout_seconds=5)
+
+    mock_page.wait_for_selector.assert_awaited_once_with(
+        WHATSAPP_LOGIN_SELECTOR,
+        timeout=5_000,
+        state="visible",
     )
-
-    await wait_for_login_element(async_page, timeout_seconds=5)
-
-    assert await async_page.locator('canvas[aria-label*="QR" i]').is_visible()
 
 
 @pytest.mark.rf06

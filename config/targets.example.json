@@ -6,22 +6,24 @@
   "append_only_new_messages": true,
   "targets": [
     {
-      "id": "grupo_exemplo",
-      "type": "group",
-      "name": "NOME EXATO DO GRUPO AQUI",
-      "enabled": true
-    },
-    {
-      "id": "contato_exemplo",
-      "type": "contact",
-      "name": "NOME DO CONTATO AQUI",
-      "enabled": true
-    },
-    {
-      "id": "telefone_exemplo",
+      "id": "numero_exemplo",
       "type": "phone",
       "phone": "5562999999999",
-      "enabled": false
+      "enabled": true,
+      "send": {
+        "enabled": true,
+        "message": "Mensagem para o número."
+      }
+    },
+    {
+      "id": "grupo_exemplo",
+      "type": "group",
+      "name": "Nome exato do grupo no WhatsApp",
+      "enabled": true,
+      "send": {
+        "enabled": true,
+        "message": "Mensagem para o grupo."
+      }
     }
   ]
 }

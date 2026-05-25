@@ -9,7 +9,7 @@ import pytest
 from dotenv import load_dotenv
 from playwright.async_api import Page
 
-from app import WHATSAPP_LOGIN_SELECTOR, WA_URL, create_app
+from app import WA_URL, WHATSAPP_LOGIN_SELECTOR, create_app
 
 
 def test_env_file_is_loaded(env_file: Path) -> None:

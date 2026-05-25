@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from playwright.async_api import BrowserContext, Page, Playwright
 
-from app import WHATSAPP_LOGIN_SELECTOR
+from wa_selectors import WHATSAPP_LOGIN_SELECTOR
 from whatsapp_auto_downloader import AppConfig, open_whatsapp, wait_for_whatsapp_ready
 
 

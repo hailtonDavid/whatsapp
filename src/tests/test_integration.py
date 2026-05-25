@@ -13,7 +13,6 @@ from app import WHATSAPP_LOGIN_SELECTOR, create_app
 from browser_service import initialize_browser, wait_for_dynamic_ready, wait_for_login_element
 from whatsapp_auto_downloader import AppConfig, load_app_config, open_whatsapp
 
-
 pytestmark = pytest.mark.integration
 
 
@@ -215,3 +214,74 @@ async def test_wait_for_dynamic_ready_handles_timeout_without_crashing() -> None
 
     mock_page.wait_for_function.assert_awaited_once()
     assert mock_page.wait_for_function.await_args.kwargs["timeout"] == 5_000
+
+
+@pytest.mark.asyncio
+async def test_load_targets_config_accepts_send_block(tmp_path: Path) -> None:
+    from whatsapp_auto_downloader import load_targets_config
+
+    targets_file = tmp_path / "targets.json"
+    targets_file.write_text(
+        """
+        {
+          "targets": [
+            {
+              "id": "cliente_teste",
+              "type": "contact",
+              "name": "Cliente Teste",
+              "enabled": true,
+              "send": {
+                "enabled": true,
+                "message": "Mensagem de teste"
+              }
+            }
+          ]
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    config = load_targets_config(targets_file)
+
+    assert len(config.targets) == 1
+    assert config.targets[0].id == "cliente_teste"
+    assert config.targets[0].send_enabled is True
+    assert config.targets[0].message == "Mensagem de teste"
+
+
+@pytest.mark.asyncio
+async def test_run_send_once_dry_run_does_not_use_browser(tmp_path: Path) -> None:
+    from whatsapp_auto_downloader import AppConfig, Target, TargetsConfig, run_send_once
+
+    app_config = AppConfig(
+        profile_dir=tmp_path / "profile",
+        headless=True,
+        ready_timeout=30,
+        export_dir=tmp_path / "exports",
+        state_dir=tmp_path / "state",
+    )
+    targets_config = TargetsConfig(
+        targets=[
+            Target(
+                id="cliente_teste",
+                type="contact",
+                name="Cliente Teste",
+                enabled=True,
+                send_enabled=True,
+                message="Mensagem configurada",
+            )
+        ]
+    )
+
+    results = await run_send_once(
+        page=None,
+        app_config=app_config,
+        targets_config=targets_config,
+        dry_run=True,
+    )
+
+    assert len(results) == 1
+    assert results[0]["dry_run"] is True
+    assert results[0]["ok"] is True
+    assert results[0]["message"] == "Mensagem configurada"
+    assert (app_config.export_dir / "send" / "last_send.json").exists()

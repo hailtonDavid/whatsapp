@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from playwright.async_api import Page, async_playwright
 
-from app import WHATSAPP_LOGIN_SELECTOR, create_app
+from app import create_app
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -125,6 +125,6 @@ def qr_login_html() -> str:
     return (
         '<!DOCTYPE html><html><body>'
         '<canvas aria-label="Scan this QR code to link a device!" role="img"></canvas>'
-        f'<div data-testid="link-device-qrcode-alt-linking-help">Precisa de ajuda?</div>'
+        '<div data-testid="link-device-qrcode-alt-linking-help">Precisa de ajuda?</div>'
         "</body></html>"
     )
