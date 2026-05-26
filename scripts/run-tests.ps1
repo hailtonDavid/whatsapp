@@ -2,11 +2,16 @@
 <#
 .SYNOPSIS
   Executa Ruff (lint) e em seguida a suíte Pytest do projeto WhatsApp.
+
+.NOTES
+  Por padrão pytest.ini exclui @browser e @slow.
+  Suíte completa: pytest -m "" ou pytest -m "slow or browser"
 #>
 [CmdletBinding()]
 param(
     [switch] $SkipRuff,
-    [string[]] $PytestArgs = @("-v", "src/tests")
+    [switch] $Full,
+    [string[]] $PytestArgs
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,6 +30,14 @@ if (-not $SkipRuff) {
         throw "Ruff lint falhou (codigo $LASTEXITCODE)."
     }
     Write-Host "[Lint] Ruff OK." -ForegroundColor Green
+}
+
+if (-not $PytestArgs) {
+    if ($Full) {
+        $PytestArgs = @("-v", "src/tests", "-m", "")
+    } else {
+        $PytestArgs = @("-v", "src/tests")
+    }
 }
 
 Write-Host "[Test] pytest $($PytestArgs -join ' ') ..." -ForegroundColor Cyan

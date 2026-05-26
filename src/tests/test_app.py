@@ -9,7 +9,10 @@ import pytest
 from dotenv import load_dotenv
 from playwright.async_api import Page
 
-from app import WA_URL, WHATSAPP_LOGIN_SELECTOR, create_app
+from app import create_app
+from browser_service import wait_for_login_element
+from wa_selectors import WHATSAPP_LOGIN_SELECTOR
+from whatsapp_auto_downloader import WA_URL
 
 
 def test_env_file_is_loaded(env_file: Path) -> None:
@@ -24,8 +27,17 @@ def test_env_file_is_loaded(env_file: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_index_returns_200_ok(client) -> None:
+async def test_index_returns_html_dashboard(client) -> None:
     response = client.get("/")
+
+    assert response.status_code == 200
+    assert "text/html" in (response.content_type or "")
+    assert b"WhatsApp Web Automation" in response.data
+
+
+@pytest.mark.asyncio
+async def test_api_index_returns_json(client) -> None:
+    response = client.get("/api")
 
     assert response.status_code == 200
     payload = response.get_json()
@@ -36,9 +48,9 @@ async def test_index_returns_200_ok(client) -> None:
 
 @pytest.mark.browser
 @pytest.mark.asyncio
-async def test_whatsapp_web_login_selector(async_page: Page) -> None:
+async def test_whatsapp_web_login_selector(async_page: Page, diagnostics_dir) -> None:
     await async_page.goto(WA_URL, wait_until="domcontentloaded", timeout=60_000)
-    await async_page.wait_for_selector(WHATSAPP_LOGIN_SELECTOR, timeout=60_000, state="visible")
+    await wait_for_login_element(async_page, timeout_seconds=60, diagnostics_dir=diagnostics_dir)
 
     login_locator = async_page.locator(WHATSAPP_LOGIN_SELECTOR).first
     assert await login_locator.is_visible()

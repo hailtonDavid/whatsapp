@@ -63,7 +63,7 @@ def load_config() -> AppConfig:
 
     return AppConfig(
         profile_dir=profile_dir,
-        headless=str_to_bool(os.getenv("WA_HEADLESS"), default=False),
+        headless=str_to_bool(os.getenv("WA_HEADLESS"), default=True),
         ready_timeout=int(os.getenv("WA_READY_TIMEOUT", "180")),
     )
 

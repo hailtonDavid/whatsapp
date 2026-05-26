@@ -1,78 +1,72 @@
 {
     "results":  [
                     {
-                        "stdout":  "",
+                        "stdout":  "........................................................................ [ 66%]\r\n....................................                                     [100%]\r\n108 passed, 9 deselected in 46.82s\r\n\r\n",
                         "returncode":  0,
                         "command":  [
                                         "D:\\Sistemas\\whatsapp\\venv\\Scripts\\python.exe",
                                         "-m",
-                                        "pip",
-                                        "install",
-                                        "-q",
-                                        "--disable-pip-version-check",
-                                        "pip",
-                                        "wheel"
-                                    ],
-                        "stderr":  "",
-                        "elapsed_ms":  16300
-                    },
-                    {
-                        "stdout":  "",
-                        "returncode":  0,
-                        "command":  [
-                                        "D:\\Sistemas\\whatsapp\\venv\\Scripts\\python.exe",
-                                        "-m",
-                                        "pip",
-                                        "install",
-                                        "-q",
-                                        "-r",
-                                        "requirements.txt"
-                                    ],
-                        "stderr":  "",
-                        "elapsed_ms":  13762
-                    },
-                    {
-                        "stdout":  "",
-                        "returncode":  0,
-                        "command":  [
-                                        "D:\\Sistemas\\whatsapp\\venv\\Scripts\\python.exe",
-                                        "-m",
-                                        "pip",
-                                        "install",
-                                        "-q",
-                                        "-r",
-                                        "requirements-dev.txt"
-                                    ],
-                        "stderr":  "",
-                        "elapsed_ms":  1129
-                    },
-                    {
-                        "stdout":  "",
-                        "returncode":  0,
-                        "command":  [
-                                        "D:\\Sistemas\\whatsapp\\venv\\Scripts\\python.exe",
-                                        "-m",
-                                        "pip",
-                                        "install",
-                                        "-q",
-                                        "pytest",
-                                        "ruff",
                                         "coverage",
-                                        "mypy"
-                                    ],
-                        "stderr":  "",
-                        "elapsed_ms":  1177
-                    },
-                    {
-                        "stdout":  ".................................                                        [100%]\r\n33 passed, 2 deselected in 8.97s\r\n\r\n",
-                        "returncode":  0,
-                        "command":  [
-                                        "D:\\Sistemas\\whatsapp\\venv\\Scripts\\pytest.exe",
+                                        "run",
+                                        "-m",
+                                        "pytest",
                                         "-q",
                                         "--maxfail=5"
                                     ],
-                        "stderr":  "D:\\Sistemas\\whatsapp\\venv\\Lib\\site-packages\\_pytest\\unraisableexception.py:67: PytestUnraisableExceptionWarning: Exception ignored in: \u003cfunction BaseSubprocessTransport.__del__ at 0x0000024E1F30E660\u003e\r\n\r\nTraceback (most recent call last):\r\n  File \"C:\\Program Files\\Python312\\Lib\\asyncio\\base_subprocess.py\", line 125, in __del__\r\n    _warn(f\"unclosed transport {self!r}\", ResourceWarning, source=self)\r\n                               ^^^^^^^^\r\n  File \"C:\\Program Files\\Python312\\Lib\\asyncio\\base_subprocess.py\", line 70, in __repr__\r\n    info.append(f\u0027stdin={stdin.pipe}\u0027)\r\n                        ^^^^^^^^^^^^\r\n  File \"C:\\Program Files\\Python312\\Lib\\asyncio\\proactor_events.py\", line 80, in __repr__\r\n    info.append(f\u0027fd={self._sock.fileno()}\u0027)\r\n                      ^^^^^^^^^^^^^^^^^^^\r\n  File \"C:\\Program Files\\Python312\\Lib\\asyncio\\windows_utils.py\", line 102, in fileno\r\n    raise ValueError(\"I/O operation on closed pipe\")\r\nValueError: I/O operation on closed pipe\r\n\r\nEnable tracemalloc to get traceback where the object was allocated.\r\nSee https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.\r\n  warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))\r\nD:\\Sistemas\\whatsapp\\venv\\Lib\\site-packages\\_pytest\\unraisableexception.py:67: PytestUnraisableExceptionWarning: Exception ignored in: \u003cfunction _ProactorBasePipeTransport.__del__ at 0x0000024E1F30FE20\u003e\r\n\r\nTraceback (most recent call last):\r\n  File \"C:\\Program Files\\Python312\\Lib\\asyncio\\proactor_events.py\", line 116, in __del__\r\n    _warn(f\"unclosed transport {self!r}\", ResourceWarning, source=self)\r\n                               ^^^^^^^^\r\n  File \"C:\\Program Files\\Python312\\Lib\\asyncio\\proactor_events.py\", line 80, in __repr__\r\n    info.append(f\u0027fd={self._sock.fileno()}\u0027)\r\n                      ^^^^^^^^^^^^^^^^^^^\r\n  File \"C:\\Program Files\\Python312\\Lib\\asyncio\\windows_utils.py\", line 102, in fileno\r\n    raise ValueError(\"I/O operation on closed pipe\")\r\nValueError: I/O operation on closed pipe\r\n\r\nEnable tracemalloc to get traceback where the object was allocated.\r\nSee https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.\r\n  warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))\r\n\r\n",
-                        "elapsed_ms":  12575
+                        "stderr":  "",
+                        "elapsed_ms":  49636
+                    },
+                    {
+                        "stdout":  "Name                               Stmts   Miss  Cover   Missing\r\n----------------------------------------------------------------\r\nsrc\\app.py                           323     97    70%   49, 61, 65, 67, 81, 89, 95, 97, 110, 130, 151, 162, 209, 233, 241-242, 267-270, 318, 322-323, 335, 342-343, 350, 357-358, 372, 376, 380, 382, 395-398, 404-426, 462-463, 466, 476, 483-484, 498, 502, 506, 508, 521-524, 568-569, 572, 603-606, 609, 618-648, 652\r\nsrc\\automation_loop.py                26      0   100%\r\nsrc\\automation_service.py            304     91    70%   74, 117, 151-155, 168-169, 177, 200-201, 209, 227-228, 230, 240, 260, 306, 310, 315, 323, 327, 336-337, 348, 368, 372, 386-387, 451, 484-507, 523-603, 618\r\nsrc\\browser_diagnostics.py            74     10    86%   110-111, 115-116, 123-125, 131-133\r\nsrc\\browser_service.py                12      0   100%\r\nsrc\\pages\\__init__.py                  4      0   100%\r\nsrc\\pages\\base_page.py                45     15    67%   22, 29, 39, 42-53, 73\r\nsrc\\pages\\whatsapp_login_page.py      18      7    61%   18-19, 22-32\r\nsrc\\pages\\whatsapp_main_page.py       19      6    68%   24-25, 28-31\r\nsrc\\playwright_lifecycle.py           63     13    79%   21-22, 31-32, 41-42, 51-52, 60-61, 67, 82-83\r\nsrc\\session_state.py                  26     15    42%   21-29, 38-46\r\nsrc\\wa_selectors.py                    6      0   100%\r\nsrc\\whatsapp_auto_downloader.py     1276    857    33%   74, 97, 213-217, 220-221, 228-238, 242-243, 247, 251-259, 263-267, 276-312, 316-346, 350-365, 369-381, 385-395, 399-401, 405-407, 411, 436-447, 454-455, 489-504, 511, 533-534, 582-591, 674-713, 729-730, 744-755, 767-800, 804-818, 1112, 1116-1125, 1129-1132, 1136-1142, 1146-1148, 1152-1158, 1162-1208, 1223-1260, 1269-1326, 1338-1377, 1553-1564, 1568-1593, 1602-1615, 1626-1627, 1631-1648, 2342, 2346-2351, 2364-2395, 2402, 2408-2457, 2467-2507, 2513, 2517-2518, 2521, 2531, 2542-2547, 2555-2560, 2567, 2570, 2578-2580, 2584, 2602-2604, 2608, 2619, 2628, 2686-2688, 2692, 2701-2707, 2717, 2728-2733, 2765-2793, 2808-2866, 2870-2883, 2887-2930, 2934-2977, 2992-2998, 3005-3058, 3087-3089, 3103-3112, 3115, 3136-3184, 3201-3235, 3239-3275, 3279-3313, 3317-3330, 3334-3364, 3368-3406, 3410-3499, 3503-3505, 3509, 3513\r\n----------------------------------------------------------------\r\nTOTAL                               2196   1111    49%\r\n\r\n",
+                        "returncode":  0,
+                        "command":  [
+                                        "D:\\Sistemas\\whatsapp\\venv\\Scripts\\python.exe",
+                                        "-m",
+                                        "coverage",
+                                        "report",
+                                        "-m"
+                                    ],
+                        "stderr":  "",
+                        "elapsed_ms":  1180
+                    },
+                    {
+                        "stdout":  "\u001b[1;32mAll checks passed!\u001b[0m\n\r\n",
+                        "returncode":  0,
+                        "command":  [
+                                        "D:\\Sistemas\\whatsapp\\venv\\Scripts\\ruff.exe",
+                                        "check",
+                                        "."
+                                    ],
+                        "stderr":  "",
+                        "elapsed_ms":  1319
+                    },
+                    {
+                        "stdout":  "Success: no issues found in 31 source files\r\n\r\n",
+                        "returncode":  0,
+                        "command":  [
+                                        "D:\\Sistemas\\whatsapp\\venv\\Scripts\\python.exe",
+                                        "-m",
+                                        "mypy",
+                                        "."
+                                    ],
+                        "stderr":  "",
+                        "elapsed_ms":  1120
+                    },
+                    {
+                        "stdout":  "src\\whatsapp_auto_downloader.py\r\n    F 2678:0 merge_groups_into_targets - D (30)\r\n    F 2594:0 merge_contacts_into_targets - C (20)\r\n    F 3061:0 run_send_once - C (19)\r\n    F 2324:0 merge_group_entries - C (18)\r\n    F 2803:0 extract_whatsapp_groups - C (17)\r\n    F 1262:0 wait_until_message_is_verified_sent - C (16)\r\n    F 2406:0 discover_group_by_search - C (15)\r\n    F 1161:0 fill_message_box_reliably - C (13)\r\n    F 2460:0 supplement_groups_by_search_prefixes - C (13)\r\n    F 1337:0 send_text_to_current_chat - C (11)\r\n    F 2510:0 list_group_names_from_targets_file - C (11)\r\n    F 2886:0 cmd_list_groups - C (11)\r\n    F 2980:0 process_send_target - C (11)\r\n    F 3278:0 cmd_unlock_profile - C (11)\r\n    F 167:0 load_targets_config - B (10)\r\n    F 428:0 open_whatsapp - B (10)\r\n    F 507:0 _name_search_queries - B (9)\r\n    F 762:0 open_chat_by_phone - B (9)\r\n    F 2933:0 cmd_list_contacts - B (9)\r\n    F 3129:0 process_target - B (9)\r\n    F 716:0 wait_for_chat_send_ready - B (8)\r\n    F 2362:0 supplement_groups_from_chat_list - B (8)\r\n    F 3238:0 cmd_doctor - B (8)\r\n    F 673:0 open_chat_by_name - B (6)\r\n    F 803:0 open_target - B (6)\r\n    F 1215:0 click_send_button_or_press_enter - B (6)\r\n    F 2764:0 build_groups_targets_json - B (6)\r\n    F 3195:0 run_cycle - B (6)\r\n    F 3367:0 cmd_send_once - B (6)\r\nsrc\\whatsapp_browser_automation.py\r\n    F 371:0 cmd_unlock_profile - C (12)\r\n    F 818:0 cmd_watch_current - B (9)\r\n    F 267:0 open_whatsapp - B (8)\r\n    F 328:0 cmd_doctor - B (8)\r\nsrc\\app.py\r\n    F 78:0 _parse_groups_payload - C (17)\r\n    F 58:0 _parse_send_payload - B (9)\r\n    F 118:0 create_app - B (9)\r\n    F 107:0 _parse_contacts_payload - B (7)\r\nsrc\\automation_service.py\r\n    F 300:0 apply_phone_updates - D (22)\r\n    F 514:0 execute_list_groups_job - C (17)\r\n    F 360:0 _apply_target_type_selection - C (15)\r\n    F 433:0 execute_send_job - B (10)\r\n    F 254:0 list_group_send_targets - B (9)\r\n    F 278:0 list_phone_send_targets - B (6)\r\nsrc\\browser_diagnostics.py\r\n    F 89:0 capture_page_diagnostics - B (6)\r\nsrc\\tests\\test_integration.py\r\n    F 54:0 test_reads_env_variables_from_dotenv - B (9)\r\n    F 39:0 test_flask_routes_active_within_async_loop - B (8)\r\n    F 79:0 test_flask_and_browser_init_integration - B (7)\r\n    F 114:0 test_playwright_browser_initialization_simulated - B (7)\r\n    F 257:0 test_run_send_once_dry_run_does_not_use_browser - B (6)\r\nsrc\\tests\\test_integration_suite.py\r\n    C 79:0 SuitePlaywrightStack - B (7)\r\n    M 88:4 SuitePlaywrightStack.shutdown_remaining - B (6)\r\nsrc\\tests\\test_flask_send.py\r\n    F 10:0 test_flask_list_send_targets - B (8)\r\n    F 23:0 test_flask_send_once_dry_run - B (7)\r\nsrc\\tests\\test_flask_groups.py\r\n    F 139:0 test_flask_groups_selection_persists_enabled - B (8)\r\nsrc\\tests\\test_browser_diagnostics.py\r\n    F 37:0 test_wait_for_visible_selector_captures_diagnostics_on_timeout - B (8)\r\nsrc\\tests\\test_flask_endpoints.py\r\n    F 162:0 test_flask_send_and_groups_require_env - B (7)\r\n    F 44:0 test_flask_index_lists_documented_endpoints - B (6)\r\n    F 56:0 test_flask_automation_start_returns_login_selector - B (6)\r\nsrc\\tests\\test_api.py\r\n    F 125:0 test_rf05_full_control_cycle_integrated_with_automation_engine - D (22)\r\n    F 86:0 test_rf05_automation_start_prepares_engine_without_browser - B (9)\r\n    F 52:0 test_rf05_api_catalog_documents_control_endpoints - B (8)\r\n    F 67:0 test_rf05_control_get_endpoints_operational - B (8)\r\n    F 192:0 test_visible_launch_replaces_headless_session - B (8)\r\n    F 173:0 test_rf05_launch_rejects_duplicate_session - B (7)\r\n    F 114:0 test_rf05_automation_stop_idempotent_when_idle - B (6)\r\n    F 214:0 test_rf05_api_bootstrap_aligns_with_start_automation_service - B (6)\r\nsrc\\tests\\test_rf04_session_persistence.py\r\n    F 44:0 test_rf04_profile_directory_is_created_and_reused - B (6)\r\nsrc\\tests\\test_rnf01_selector_resilience.py\r\n    F 34:0 test_rnf01_selector_groups_are_non_empty_and_unique - B (6)\r\nsrc\\tests\\test_flask_phones.py\r\n    F 56:0 test_flask_phones_selection_persists_enabled - B (9)\r\n    F 13:0 test_flask_phones_send_targets - B (6)\r\nsrc\\tests\\test_flask_contacts.py\r\n    F 83:0 test_merge_contacts_into_targets_adds_and_updates - C (15)\r\nsrc\\tests\\test_phone_group_updates.py\r\n    F 63:0 test_merge_groups_into_targets_preserves_phones - B (9)\r\n    F 18:0 test_apply_phone_updates_changes_number_and_message - B (6)\r\n    F 97:0 test_default_group_search_prefixes_includes_letters_and_digits - B (6)\r\n\r\n",
+                        "returncode":  0,
+                        "command":  [
+                                        "D:\\Sistemas\\whatsapp\\venv\\Scripts\\python.exe",
+                                        "-m",
+                                        "radon",
+                                        "cc",
+                                        "-s",
+                                        "-n",
+                                        "B",
+                                        "src"
+                                    ],
+                        "stderr":  "",
+                        "elapsed_ms":  1130
                     }
                 ],
     "root_hint_container":  "/mnt/d/Sistemas/whatsapp",
@@ -81,10 +75,17 @@
                   "total":  5,
                   "passed":  5
               },
-    "producer":  "dsm-external-test-script-v4",
-    "started_at":  "2026-05-25T14:13:54.8514609-03:00",
-    "detection_notes":  "script_version=4; has_py_tests=True; has_py_repo=True; deps_auto_install=true; mode=pytest_suite",
+    "producer":  "dsm-external-test-script-v6",
+    "started_at":  "2026-05-25T22:00:21.1301494-03:00",
+    "detection_notes":  "script_version=6; generator=dsm-external-test-script-v6; plan_steps=5",
     "project_root":  "D:\\Sistemas\\whatsapp",
-    "script_version":  "4",
+    "planned_commands":  [
+                             "coverage run -m pytest -q --maxfail=5",
+                             "coverage report -m",
+                             "ruff check .",
+                             "mypy .",
+                             "radon cc -s -n B src"
+                         ],
+    "script_version":  "6",
     "project_name":  "WhatsApp"
 }

@@ -16,6 +16,7 @@ Uso:
     python src/whatsapp_auto_downloader.py scan --targets config/targets.json
     python src/whatsapp_auto_downloader.py send-once --targets config/targets.json --confirm
     python src/whatsapp_auto_downloader.py list-groups --output exports/groups/groups.json
+    python src/whatsapp_auto_downloader.py list-contacts --output exports/contacts/contacts.json --targets config/targets.json
 
 Regras de segurança:
 - Use somente conta própria ou ambiente autorizado.
@@ -81,6 +82,40 @@ class AppConfig:
     ready_timeout: int
     export_dir: Path
     state_dir: Path
+    browser_channel: str | None = None
+
+
+def default_browser_channel() -> str | None:
+    """Canal Playwright (Edge/Chrome instalado). Evita Chromium embutido bloqueado pelo WhatsApp."""
+    raw = os.getenv("WA_BROWSER_CHANNEL", "").strip()
+    if raw.lower() in {"none", "bundled", "chromium"}:
+        return None
+    if raw:
+        return raw
+    if platform.system().lower().startswith("win"):
+        return "msedge"
+    return "chrome"
+
+
+def playwright_launch_kwargs(config: AppConfig) -> dict[str, Any]:
+    args = [
+        "--no-default-browser-check",
+        "--disable-infobars",
+        "--disable-blink-features=AutomationControlled",
+    ]
+    if not config.headless:
+        args.extend(["--start-maximized", "--window-size=1440,900"])
+
+    kwargs: dict[str, Any] = {
+        "user_data_dir": str(config.profile_dir),
+        "headless": config.headless,
+        "viewport": {"width": 1440, "height": 900},
+        "locale": "pt-BR",
+        "args": args,
+    }
+    if config.browser_channel:
+        kwargs["channel"] = config.browser_channel
+    return kwargs
 
 
 @dataclass
@@ -105,7 +140,7 @@ class TargetsConfig:
 
 
 def load_app_config(env_file: Path | None = None) -> AppConfig:
-    load_dotenv(env_file or PROJECT_ROOT / ".env")
+    load_dotenv(env_file or PROJECT_ROOT / ".env", encoding="utf-8-sig")
 
     profile_dir = Path(os.getenv("WA_PROFILE_DIR", "profile_whatsapp_v4"))
     if not profile_dir.is_absolute():
@@ -121,10 +156,11 @@ def load_app_config(env_file: Path | None = None) -> AppConfig:
 
     return AppConfig(
         profile_dir=profile_dir,
-        headless=str_to_bool(os.getenv("WA_HEADLESS"), default=False),
+        headless=str_to_bool(os.getenv("WA_HEADLESS"), default=True),
         ready_timeout=int(os.getenv("WA_READY_TIMEOUT", "180")),
         export_dir=export_dir,
         state_dir=state_dir,
+        browser_channel=default_browser_channel(),
     )
 
 
@@ -395,14 +431,7 @@ async def open_whatsapp(config: AppConfig) -> Tuple[Playwright, BrowserContext, 
     playwright = await async_playwright().start()
     try:
         context = await playwright.chromium.launch_persistent_context(
-            user_data_dir=str(config.profile_dir),
-            headless=config.headless,
-            viewport={"width": 1440, "height": 900},
-            locale="pt-BR",
-            args=[
-                "--no-default-browser-check",
-                "--disable-infobars",
-            ],
+            **playwright_launch_kwargs(config),
         )
     except Exception as exc:
         await playwright.stop()
@@ -419,6 +448,11 @@ async def open_whatsapp(config: AppConfig) -> Tuple[Playwright, BrowserContext, 
 
     page = context.pages[0] if context.pages else await context.new_page()
     await page.goto(WA_URL, wait_until="domcontentloaded")
+    if not config.headless:
+        try:
+            await page.bring_to_front()
+        except Exception:
+            pass
     return playwright, context, page
 
 
@@ -448,6 +482,51 @@ async def wait_for_whatsapp_ready(page: Page, timeout_seconds: int) -> None:
     except PlaywrightTimeoutError:
         print("Não foi possível confirmar o carregamento dentro do tempo limite.")
         print("Verifique QR Code, conexão e se o WhatsApp Web abriu corretamente.")
+
+
+async def wait_for_whatsapp_sync_idle(page: Page, *, timeout_ms: int = 120_000) -> None:
+    """Aguarda o fim da sincronização inicial ('Sincronizando conversas...')."""
+    markers = (
+        "sincronizando conversas",
+        "synchronizing chats",
+        "syncing chats",
+        "carregando conversas",
+    )
+    deadline = time.monotonic() + (timeout_ms / 1000)
+    while time.monotonic() < deadline:
+        try:
+            body_text = await page.evaluate("() => (document.body?.innerText || '').toLowerCase()")
+        except Exception:
+            body_text = ""
+        if not any(marker in body_text for marker in markers):
+            return
+        print("WhatsApp ainda sincronizando conversas — aguardando...")
+        await page.wait_for_timeout(1500)
+
+
+def _name_search_queries(name: str) -> List[str]:
+    """Gera variantes de busca (nome completo, trecho antes da vírgula, primeiras palavras)."""
+    cleaned = (name or "").strip()
+    if not cleaned:
+        return []
+
+    queries: List[str] = [cleaned]
+    if "," in cleaned:
+        head = cleaned.split(",", 1)[0].strip()
+        if head:
+            queries.append(head)
+    words = cleaned.split()
+    if len(words) >= 2:
+        queries.append(" ".join(words[:2]))
+
+    seen: set[str] = set()
+    unique: List[str] = []
+    for item in queries:
+        key = item.casefold()
+        if key and key not in seen:
+            seen.add(key)
+            unique.append(item)
+    return unique
 
 
 async def clear_search(page: Page) -> None:
@@ -513,8 +592,16 @@ async def click_search_box(page: Page) -> bool:
 
 
 FIND_CHAT_RESULT_JS = """
-(targetName) => {
-    const query = String(targetName || "").trim().toLowerCase();
+(params) => {
+    const queryRaw = typeof params === "string" ? params : (params?.query || params?.fullName || "");
+    const fullNameRaw = typeof params === "string" ? params : (params?.fullName || params?.query || "");
+    const query = String(queryRaw || "").trim().toLowerCase();
+    const fullName = String(fullNameRaw || "").trim().toLowerCase();
+
+    const normalize = (txt) => String(txt || "")
+        .replace(/\\s+/g, " ")
+        .trim()
+        .toLowerCase();
 
     const visible = (el) => {
         const r = el.getBoundingClientRect();
@@ -522,78 +609,108 @@ FIND_CHAT_RESULT_JS = """
         return r.width > 0 && r.height > 0 &&
                s.display !== "none" &&
                s.visibility !== "hidden" &&
-               r.x < window.innerWidth * 0.60 &&
-               r.y > 60;
+               r.x < window.innerWidth * 0.62 &&
+               r.y > 40;
     };
 
-    const normalize = (txt) => String(txt || "")
-        .replace(/\\s+/g, " ")
-        .trim()
-        .toLowerCase();
+    const inMensagensSection = (el) => {
+        let node = el;
+        for (let depth = 0; depth < 10 && node; depth++) {
+            const text = normalize(node.textContent || "");
+            if (text === "mensagens" || text.startsWith("mensagens\\n")) return true;
+            node = node.parentElement;
+        }
+        return false;
+    };
 
-    const candidates = Array.from(document.querySelectorAll(
-        "div[role='row'], div[role='gridcell'], div[tabindex], span[title], div"
-    ))
-    .filter(visible)
-    .map((el) => {
+    const scoreCandidate = (el, labelText) => {
         const r = el.getBoundingClientRect();
-        const text = normalize(el.innerText || el.textContent || "");
-        const title = normalize(el.getAttribute("title") || "");
-        const aria = normalize(el.getAttribute("aria-label") || "");
+        const text = normalize(labelText || el.innerText || el.textContent || "");
+        const title = normalize(el.getAttribute?.("title") || "");
+        const aria = normalize(el.getAttribute?.("aria-label") || "");
         const joined = [text, title, aria].filter(Boolean).join(" | ");
 
         let score = 0;
-        if (joined === query) score += 100;
-        if (title === query) score += 90;
-        if (joined.includes(query)) score += 40;
-        if (text.includes(query)) score += 30;
-        if (r.x < window.innerWidth * 0.45) score += 5;
-        if (r.width > 100 && r.height > 30) score += 2;
+        const target = fullName || query;
+        if (title && title === target) score += 220;
+        if (title && title === query) score += 200;
+        if (text && text === target) score += 180;
+        if (title && title.includes(query)) score += 120;
+        if (text && text.includes(query)) score += 90;
+        if (joined.includes(query)) score += 60;
+        if (target && title.includes(target)) score += 80;
+        if (el.matches?.("span[title], div[title]")) score += 40;
+        if (el.closest?.("#pane-side")) score += 25;
+        if (el.closest?.("[data-testid='cell-frame-container'], [role='listitem'], [role='row']")) score += 20;
+        if (r.x < window.innerWidth * 0.45) score += 10;
+        if (inMensagensSection(el)) score -= 120;
+        if (text.includes("mensagens") && text.length < 24) score -= 80;
 
-        return {
-            score,
-            text,
-            title,
-            aria,
-            x: r.x,
-            y: r.y,
-            width: r.width,
-            height: r.height
-        };
-    })
-    .filter(x => x.score >= 30)
-    .sort((a, b) => b.score - a.score || a.y - b.y);
+        return { score, text, title, aria, x: r.x, y: r.y, width: r.width, height: r.height };
+    };
 
+    const pane = document.querySelector("#pane-side") || document.body;
+    const seen = new Set();
+    const candidates = [];
+
+    for (const el of pane.querySelectorAll("span[title], div[title], [role='listitem'], [role='row'], [data-testid='cell-frame-container']")) {
+        if (!visible(el)) continue;
+        const label = el.getAttribute("title") || el.getAttribute("aria-label") || el.innerText || "";
+        const item = scoreCandidate(el, label);
+        if (item.score < 60) continue;
+        const key = `${item.title}|${item.text}|${Math.round(item.y)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        candidates.push(item);
+    }
+
+    candidates.sort((a, b) => b.score - a.score || a.y - b.y);
     return candidates[0] || null;
 }
 """
 
 
-async def open_chat_by_name(page: Page, name: str) -> bool:
+async def open_chat_by_name(page: Page, name: str) -> tuple[bool, Optional[str]]:
     print(f"Buscando conversa: {name}")
 
-    await clear_search(page)
+    await wait_for_whatsapp_sync_idle(page, timeout_ms=60_000)
 
-    ok = await click_search_box(page)
-    if not ok:
-        print("Não encontrei a caixa de pesquisa.")
-        return False
+    last_error = "Nenhum resultado encontrado na pesquisa."
+    for query in _name_search_queries(name):
+        await clear_search(page)
 
-    await page.keyboard.press("Control+A")
-    await page.keyboard.type(name, delay=25)
-    await page.wait_for_timeout(1500)
+        ok = await click_search_box(page)
+        if not ok:
+            last_error = "Não encontrei a caixa de pesquisa."
+            print(last_error)
+            continue
 
-    result = await page.evaluate(FIND_CHAT_RESULT_JS, name)
-    if not result:
-        print(f"Nenhum resultado encontrado para: {name}")
-        return False
+        await page.keyboard.press("Control+A")
+        await page.keyboard.type(query, delay=20)
+        await page.wait_for_timeout(2500)
 
-    await page.mouse.click(
-        result["x"] + min(50, result["width"] / 2),
-        result["y"] + result["height"] / 2,
-    )
-    await page.wait_for_timeout(1800)
-    return True
+        result = await page.evaluate(
+            FIND_CHAT_RESULT_JS,
+            {"query": query, "fullName": name},
+        )
+        if result:
+            await page.mouse.click(
+                result["x"] + min(50, result["width"] / 2),
+                result["y"] + result["height"] / 2,
+            )
+            await page.wait_for_timeout(2000)
+        else:
+            await page.keyboard.press("Enter")
+            await page.wait_for_timeout(2000)
+
+        ready = await wait_for_chat_send_ready(page, timeout_ms=12_000)
+        if ready.get("ok"):
+            return True, None
+
+        last_error = str(ready.get("error") or f"Nenhum resultado encontrado para: {query}")
+        print(f"Busca '{query}' não abriu conversa: {last_error}")
+
+    return False, last_error
 
 
 async def wait_for_chat_send_ready(page: Page, timeout_ms: int = 30000) -> Dict[str, Any]:
@@ -613,6 +730,17 @@ async def wait_for_chat_send_ready(page: Page, timeout_ms: int = 30000) -> Dict[
             state = {"ok": False, "error": f"Falha ao avaliar tela do WhatsApp: {exc}"}
 
         last_state = state or {}
+        if last_state.get("unsupported_browser"):
+            channel_hint = os.getenv("WA_BROWSER_CHANNEL") or "msedge (Windows) / chrome"
+            return {
+                "ok": False,
+                "error": (
+                    "WhatsApp Web rejeitou o navegador automatizado. "
+                    f"Configure WA_BROWSER_CHANNEL={channel_hint} no .env e reinicie. "
+                    "Se persistir, use WA_HEADLESS=false no painel (Abrir visível)."
+                ),
+                "state": last_state,
+            }
         if last_state.get("invalid_reason"):
             return {
                 "ok": False,
@@ -631,11 +759,15 @@ async def wait_for_chat_send_ready(page: Page, timeout_ms: int = 30000) -> Dict[
     }
 
 
-async def open_chat_by_phone(page: Page, phone: str, message: Optional[str] = None) -> bool:
+async def open_chat_by_phone(
+    page: Page,
+    phone: str,
+    message: Optional[str] = None,
+) -> tuple[bool, Optional[str]]:
     clean = re.sub(r"\D+", "", phone or "")
     if not clean:
         print("Telefone vazio/inválido.")
-        return False
+        return False, "Telefone vazio/inválido."
 
     print(f"Abrindo conversa por telefone: {clean}")
     url = f"{WA_URL}send?phone={clean}&app_absent=0"
@@ -661,27 +793,29 @@ async def open_chat_by_phone(page: Page, phone: str, message: Optional[str] = No
 
     ready = await wait_for_chat_send_ready(page, timeout_ms=30000)
     if not ready.get("ok"):
-        print(f"Conversa por telefone não ficou pronta: {ready.get('error')}")
-        return False
+        error = str(ready.get("error") or "A conversa não ficou pronta para envio.")
+        print(f"Conversa por telefone não ficou pronta: {error}")
+        return False, error
 
-    return True
+    return True, None
 
 
-async def open_target(page: Page, target: Target) -> bool:
+async def open_target(page: Page, target: Target) -> tuple[bool, Optional[str]]:
     if target.type in {"group", "contact", "name"}:
         if not target.name:
             print(f"Alvo {target.id} sem campo name.")
-            return False
-        return await open_chat_by_name(page, target.name)
+            return False, f"Alvo {target.id} sem campo name."
+        opened, open_error = await open_chat_by_name(page, target.name)
+        return opened, open_error if not opened else None
 
     if target.type == "phone":
         if not target.phone:
             print(f"Alvo {target.id} sem campo phone.")
-            return False
+            return False, f"Alvo {target.id} sem campo phone."
         return await open_chat_by_phone(page, target.phone)
 
     print(f"Tipo de alvo não suportado: {target.type}")
-    return False
+    return False, f"Tipo de alvo não suportado: {target.type}"
 
 
 FIND_MESSAGE_BOX_JS = r"""
@@ -853,6 +987,19 @@ CHAT_SEND_STATE_JS = r"""
 
     const invalidReason = invalidMarkers.find(marker => bodyText.includes(marker)) || null;
 
+    const unsupportedMarkers = [
+        "funciona no google chrome",
+        "works on google chrome",
+        "atualize o chrome",
+        "update chrome",
+        "atualize o google chrome",
+        "update google chrome",
+        "browser is not supported",
+        "navegador não é suportado",
+        "navegador nao e suportado"
+    ];
+    const unsupported_browser = unsupportedMarkers.some(marker => bodyText.includes(marker));
+
     const visible = (el) => {
         const r = el.getBoundingClientRect();
         const s = window.getComputedStyle(el);
@@ -869,9 +1016,10 @@ CHAT_SEND_STATE_JS = r"""
                   bodyText.includes("qr code");
 
     return {
-        ok: !invalidReason && hasMessageBox,
+        ok: !invalidReason && !unsupported_browser && hasMessageBox,
         has_message_box: hasMessageBox,
         invalid_reason: invalidReason,
+        unsupported_browser,
         has_qr: hasQr,
         body_preview: bodyText.slice(0, 500)
     };
@@ -1535,8 +1683,9 @@ def write_send_latest(path: Path, records: List[Dict[str, Any]]) -> None:
     path.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-EXTRACT_WHATSAPP_GROUPS_JS = r"""
-async () => {
+EXTRACT_WHATSAPP_CHATS_JS = r"""
+async (extractMode) => {
+    const wantGroups = (extractMode || "groups") === "groups";
     const normalize = (txt) => String(txt || "")
         .replace(/\u200e/g, "")
         .replace(/\u200f/g, "")
@@ -1604,6 +1753,24 @@ async () => {
         );
     };
 
+    const phoneFromWhatsappId = (whatsappId) => {
+        const id = String(whatsappId || "").toLowerCase();
+        const user = id.split("@")[0] || "";
+        const digits = user.replace(/\D/g, "");
+        return digits.length >= 8 ? digits : null;
+    };
+
+    const isPrivateChat = (chat) => {
+        if (isGroupChat(chat)) return false;
+        const id = readId(chat).toLowerCase();
+        if (!id) return false;
+        if (id.includes("@broadcast") || id.includes("@newsletter") || id.includes("@status")) return false;
+        if (id.includes("@g.us") || id.includes("@lid")) return false;
+        return id.includes("@c.us") || id.includes("@s.whatsapp.net") || phoneFromWhatsappId(id) != null;
+    };
+
+    const matchesMode = (chat) => (wantGroups ? isGroupChat(chat) : isPrivateChat(chat));
+
     const readName = (chat) => {
         const groupMeta = chat?.groupMetadata || chat?.__x_groupMetadata || {};
         return normalize(
@@ -1635,13 +1802,12 @@ async () => {
         return false;
     };
 
-    const makeGroup = (chat, source) => {
+    const makeEntry = (chat, source) => {
         const whatsappId = readId(chat);
         const name = readName(chat);
-        return {
+        const base = {
             whatsapp_id: whatsappId || null,
             name: name || whatsappId || null,
-            type: "group",
             source,
             unread_count: Number(chat?.unreadCount ?? chat?.__x_unreadCount ?? chat?.unreadMsgs ?? 0) || 0,
             archived: readBool(chat?.archive, chat?.isArchived, chat?.__x_archive),
@@ -1650,6 +1816,10 @@ async () => {
             last_message_at: readTimestamp(chat),
             raw_preview: toPlain(chat, 0)
         };
+        if (wantGroups) {
+            return { ...base, type: "group" };
+        }
+        return { ...base, type: "contact", phone: phoneFromWhatsappId(whatsappId) };
     };
 
     const seenCollections = new WeakSet();
@@ -1660,7 +1830,8 @@ async () => {
         wpp_present: Boolean(window.WPP),
         webpack_cache_modules: 0,
         collections_found: 0,
-        indexeddb_groups_found: 0,
+        indexeddb_entries_found: 0,
+        dom_chat_titles_found: 0,
         errors: []
     };
 
@@ -1670,9 +1841,9 @@ async () => {
         const items = objectValuesSafe(value);
         if (!items.length) return;
         const sample = items.slice(0, 80);
-        const groupCount = sample.filter(isGroupChat).length;
+        const modeCount = sample.filter(matchesMode).length;
         const idLikeCount = sample.filter(item => readId(item)).length;
-        if (groupCount > 0 || idLikeCount >= Math.min(5, sample.length)) {
+        if (modeCount > 0 || idLikeCount >= Math.min(5, sample.length)) {
             seenCollections.add(value);
             collections.push({label, value, items});
         }
@@ -1731,21 +1902,25 @@ async () => {
         diagnostics.errors.push(`internal_store_scan: ${e?.message || e}`);
     }
 
-    const groupsByIdOrName = new Map();
+    const entriesByKey = new Map();
     for (const collection of collections) {
         for (const item of collection.items) {
-            if (!isGroupChat(item)) continue;
-            const group = makeGroup(item, collection.label);
-            const key = group.whatsapp_id || group.name;
+            if (!matchesMode(item)) continue;
+            const entry = makeEntry(item, collection.label);
+            if (!wantGroups && !entry.phone) continue;
+            const key = wantGroups ? (entry.whatsapp_id || entry.name) : (entry.phone || entry.whatsapp_id);
             if (!key) continue;
-            if (!groupsByIdOrName.has(key)) groupsByIdOrName.set(key, group);
+            if (!entriesByKey.has(key)) entriesByKey.set(key, entry);
         }
     }
     diagnostics.collections_found = collections.length;
 
-    // 2) Fallback: varre IndexedDB da sessão do WhatsApp Web procurando registros com @g.us.
-    // É limitado para não travar o navegador; serve como complemento quando o Store interno muda.
+    // 2) Fallback: varre IndexedDB da sessão do WhatsApp Web.
     const scanIndexedDb = async () => {
+        const marker = wantGroups ? "@g.us" : "@c.us";
+        const idPattern = wantGroups
+            ? /[0-9]{5,}@[a-z.]?g\.us|[0-9]{5,}@g\.us/g
+            : /[0-9]{5,}@c\.us|[0-9]{5,}@s\.whatsapp\.net/g;
         if (!indexedDB?.databases) return [];
         const dbs = await indexedDB.databases();
         const out = [];
@@ -1784,18 +1959,21 @@ async () => {
                         tx = db.transaction(storeName, "readonly");
                         store = tx.objectStore(storeName);
                     } catch { continue; }
-                    const rows = await getAllLimited(store, 2500);
+                    const rows = await getAllLimited(store, 8000);
                     for (const row of rows) {
                         let text = "";
                         try { text = JSON.stringify(row); } catch { continue; }
-                        if (!text.includes("@g.us")) continue;
-                        const idMatch = text.match(/[0-9]{5,}@[a-z.]?g\.us|[0-9]{5,}@g\.us/g);
+                        if (!text.includes(marker) && !(wantGroups ? false : text.includes("@s.whatsapp.net"))) continue;
+                        const idMatch = text.match(idPattern);
                         const ids = Array.from(new Set(idMatch || []));
                         for (const id of ids) {
+                            const phone = phoneFromWhatsappId(id);
+                            if (!wantGroups && !phone) continue;
                             out.push({
                                 whatsapp_id: id,
-                                name: normalize(row?.name || row?.formattedTitle || row?.subject || row?.pushname || row?.__x_name || row?.__x_formattedTitle || row?.__x_subject || id),
-                                type: "group",
+                                phone: phone,
+                                name: normalize(row?.name || row?.formattedTitle || row?.subject || row?.pushname || row?.__x_name || row?.__x_formattedTitle || row?.__x_subject || phone || id),
+                                type: wantGroups ? "group" : "contact",
                                 source: `indexedDB:${dbInfo.name}/${storeName}`,
                                 unread_count: Number(row?.unreadCount ?? row?.__x_unreadCount ?? 0) || 0,
                                 archived: readBool(row?.archive, row?.isArchived, row?.__x_archive),
@@ -1815,29 +1993,547 @@ async () => {
     };
 
     try {
-        const idbGroups = await scanIndexedDb();
-        diagnostics.indexeddb_groups_found = idbGroups.length;
-        for (const group of idbGroups) {
-            const key = group.whatsapp_id || group.name;
-            if (key && !groupsByIdOrName.has(key)) groupsByIdOrName.set(key, group);
+        const idbEntries = await scanIndexedDb();
+        diagnostics.indexeddb_entries_found = idbEntries.length;
+        for (const entry of idbEntries) {
+            const key = wantGroups ? (entry.whatsapp_id || entry.name) : (entry.phone || entry.whatsapp_id);
+            if (key && !entriesByKey.has(key)) entriesByKey.set(key, entry);
         }
     } catch (e) {
         diagnostics.errors.push(`indexeddb_scan: ${e?.message || e}`);
     }
 
-    const groups = Array.from(groupsByIdOrName.values())
-        .filter(g => g.name || g.whatsapp_id)
-        .sort((a, b) => String(a.name || a.whatsapp_id).localeCompare(String(b.name || b.whatsapp_id), "pt-BR"));
+    const scanVisibleChatTitles = async () => {
+        const pane = document.querySelector("#pane-side");
+        if (!pane) return [];
+        const seen = new Set();
+        const results = [];
+        const chatList = pane.querySelector("[data-testid='chat-list']");
+        let scroller = chatList?.closest("[tabindex='-1']")
+            || pane.querySelector("[tabindex='-1']")
+            || chatList?.parentElement
+            || pane;
+        for (let round = 0; round < 40; round++) {
+            for (const el of pane.querySelectorAll(
+                "span[title], [data-testid='cell-frame-title'], [data-testid='cell-frame-container'] span[dir='auto']"
+            )) {
+                let title = normalize(el.getAttribute("title") || el.textContent || "");
+                if (!title || title.length < 2) continue;
+                const key = title.toLowerCase();
+                if (seen.has(key)) continue;
+                const r = el.getBoundingClientRect();
+                if (r.width <= 0 || r.height <= 0 || r.x > window.innerWidth * 0.55) continue;
+                seen.add(key);
+                results.push({
+                    whatsapp_id: null,
+                    name: title,
+                    type: wantGroups ? "group" : "contact",
+                    source: "dom:pane-side",
+                    unread_count: 0,
+                    archived: false,
+                    pinned: false,
+                    muted: false,
+                    last_message_at: null,
+                    raw_preview: null
+                });
+            }
+            const prevTop = scroller.scrollTop;
+            scroller.scrollTop = scroller.scrollTop + Math.max(700, Math.floor((scroller.clientHeight || 720) * 0.9));
+            await new Promise(r => setTimeout(r, 280));
+            if (scroller.scrollTop === prevTop) break;
+        }
+        return results;
+    };
+
+    if (wantGroups) {
+        try {
+            const domEntries = await scanVisibleChatTitles();
+            diagnostics.dom_chat_titles_found = domEntries.length;
+            for (const entry of domEntries) {
+                const nameKey = normalize(entry.name || "").toLowerCase();
+                if (!nameKey) continue;
+                const exists = Array.from(entriesByKey.values()).some(
+                    item => normalize(item.name || "").toLowerCase() === nameKey
+                );
+                if (!exists) entriesByKey.set(`dom:${nameKey}`, entry);
+            }
+        } catch (e) {
+            diagnostics.errors.push(`dom_pane_side_scan: ${e?.message || e}`);
+        }
+    }
+
+    const entries = Array.from(entriesByKey.values())
+        .filter(item => wantGroups ? (item.name || item.whatsapp_id) : item.phone)
+        .sort((a, b) => String(a.name || a.phone || a.whatsapp_id).localeCompare(String(b.name || b.phone || b.whatsapp_id), "pt-BR"));
+
+    if (wantGroups) {
+        return {
+            ok: entries.length > 0,
+            generated_at_browser: new Date().toISOString(),
+            total_groups: entries.length,
+            groups: entries,
+            diagnostics
+        };
+    }
 
     return {
-        ok: groups.length > 0,
+        ok: entries.length > 0,
         generated_at_browser: new Date().toISOString(),
-        total_groups: groups.length,
-        groups,
+        total_contacts: entries.length,
+        contacts: entries,
         diagnostics
     };
 }
 """
+
+# Compatibilidade com referências antigas ao script de grupos.
+EXTRACT_WHATSAPP_GROUPS_JS = EXTRACT_WHATSAPP_CHATS_JS
+
+SUPPLEMENT_GROUP_SCROLL_JS = r"""
+async () => {
+    const normalize = (txt) => String(txt || "").replace(/\s+/g, " ").trim();
+    const pane = document.querySelector("#pane-side");
+    if (!pane) return [];
+
+    const seen = new Set();
+    const results = [];
+    const chatList = pane.querySelector("[data-testid='chat-list']");
+    let scroller = chatList?.closest("[tabindex='-1']")
+        || pane.querySelector("[tabindex='-1']")
+        || chatList?.parentElement
+        || pane;
+
+    const collect = () => {
+        for (const el of pane.querySelectorAll(
+            "span[title], [data-testid='cell-frame-title'], [data-testid='cell-frame-container'] span[dir='auto']"
+        )) {
+            const title = normalize(el.getAttribute("title") || el.textContent || "");
+            if (!title || title.length < 2) continue;
+            const key = title.toLowerCase();
+            if (seen.has(key)) continue;
+            const r = el.getBoundingClientRect();
+            if (r.width <= 0 || r.height <= 0 || r.x > window.innerWidth * 0.55) continue;
+            seen.add(key);
+            results.push(title);
+        }
+    };
+
+    const tryClickFilter = (labels) => {
+        for (const el of document.querySelectorAll("#pane-side button, #pane-side [role='tab'], #pane-side [role='button']")) {
+            const text = normalize(el.textContent || el.getAttribute("aria-label") || "");
+            const lower = text.toLowerCase();
+            for (const label of labels) {
+                const target = String(label || "").toLowerCase();
+                if (lower === target || lower.includes(target)) {
+                    try { el.click(); } catch {}
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+
+    const scanCurrentFilter = async () => {
+        try { scroller.scrollTop = 0; } catch {}
+        collect();
+        for (let round = 0; round < 80; round++) {
+            collect();
+            const prevTop = scroller.scrollTop;
+            try {
+                scroller.scrollTop = scroller.scrollTop + Math.max(700, Math.floor((scroller.clientHeight || 720) * 0.9));
+                scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: 900, bubbles: true }));
+            } catch { break; }
+            await new Promise(r => setTimeout(r, 220));
+            if (scroller.scrollTop === prevTop) break;
+        }
+    };
+
+    await scanCurrentFilter();
+    for (const labels of [["Grupos", "Groups"], ["Arquivadas", "Archived"]]) {
+        if (tryClickFilter(labels)) {
+            await new Promise(r => setTimeout(r, 700));
+            await scanCurrentFilter();
+        }
+    }
+
+    tryClickFilter(["Todas", "All", "Todos"]);
+    return results;
+}
+"""
+
+COLLECT_SEARCH_RESULT_TITLES_JS = r"""
+(query) => {
+    const normalize = (txt) => String(txt || "").replace(/\s+/g, " ").trim();
+    const needle = String(query || "").trim().toLowerCase();
+    const out = [];
+    const seen = new Set();
+    const pane = document.querySelector("#pane-side") || document.body;
+
+    for (const el of pane.querySelectorAll("span[title], [data-testid='cell-frame-title'], [role='listitem'] span[dir='auto']")) {
+        const title = normalize(el.getAttribute("title") || el.textContent || "");
+        if (title.length < 3) continue;
+        if (needle && !title.toLowerCase().includes(needle)) continue;
+        const key = title.toLowerCase();
+        if (seen.has(key)) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width <= 0 || r.height <= 0 || r.x > window.innerWidth * 0.62) continue;
+        seen.add(key);
+        out.push(title);
+    }
+    return out;
+}
+"""
+
+# Compatibilidade com referências antigas.
+SUPPLEMENT_GROUP_TITLES_JS = COLLECT_SEARCH_RESULT_TITLES_JS
+
+EXTRACT_INDEXEDDB_GROUPS_JS = r"""
+async () => {
+    const normalize = (txt) => String(txt || "").replace(/\s+/g, " ").trim();
+    const readSerialized = (value) => {
+        if (value == null) return "";
+        if (typeof value === "string") return value;
+        if (typeof value === "object") {
+            return String(
+                value._serialized || value.serialized ||
+                (value.user && value.server ? `${value.user}@${value.server}` : "") ||
+                value.id || ""
+            );
+        }
+        return String(value);
+    };
+    const readRowId = (row) => readSerialized(row?.id || row?.__x_id || row?.chatId || row?.wid || row?.jid);
+    const readRowName = (row) => normalize(
+        row?.name || row?.__x_name ||
+        row?.formattedTitle || row?.__x_formattedTitle ||
+        row?.subject || row?.__x_subject ||
+        row?.groupMetadata?.subject || row?.__x_groupMetadata?.subject ||
+        row?.contact?.name || row?.__x_contact?.name || ""
+    );
+    const isGroupRow = (row) => {
+        if (!row || typeof row !== "object") return false;
+        const id = readRowId(row).toLowerCase();
+        return Boolean(
+            id.includes("@g.us") ||
+            row?.isGroup === true ||
+            row?.__x_isGroup === true ||
+            row?.groupMetadata ||
+            row?.__x_groupMetadata
+        );
+    };
+    const seen = new Set();
+    const out = [];
+    const pushGroup = (row, source) => {
+        if (!isGroupRow(row)) return;
+        const whatsappId = readRowId(row) || null;
+        const name = readRowName(row) || whatsappId;
+        const key = (whatsappId || name || "").toLowerCase();
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        out.push({
+            whatsapp_id: whatsappId || null,
+            name,
+            type: "group",
+            source,
+            unread_count: Number(row?.unreadCount ?? row?.__x_unreadCount ?? 0) || 0,
+            archived: Boolean(row?.archive ?? row?.__x_archive ?? row?.isArchived ?? false),
+            pinned: Boolean(row?.pin ?? row?.__x_pin ?? row?.isPinned ?? false),
+            muted: Boolean(row?.mute ?? row?.__x_mute ?? row?.isMuted ?? false),
+            last_message_at: null,
+        });
+    };
+    const collectItems = (value) => {
+        if (!value) return [];
+        try {
+            if (Array.isArray(value)) return value;
+            if (value instanceof Map) return Array.from(value.values());
+            if (typeof value.getModels === "function") return value.getModels();
+            if (Array.isArray(value.models)) return value.models;
+            if (value.models instanceof Map) return Array.from(value.models.values());
+            if (value._models instanceof Map) return Array.from(value._models.values());
+            if (Array.isArray(value._models)) return value._models;
+        } catch {}
+        return [];
+    };
+    const scanStoreObject = (root, label) => {
+        if (!root || typeof root !== "object") return;
+        for (const key of ["Chat", "GroupMetadata", "chat", "chats"]) {
+            for (const item of collectItems(root[key])) pushGroup(item, `${label}.${key}`);
+        }
+        for (const item of collectItems(root)) pushGroup(item, label);
+    };
+    try {
+        if (window.Store) scanStoreObject(window.Store, "store");
+        if (window.WPP?.chat?.list) {
+            for (const chat of window.WPP.chat.list()) pushGroup(chat, "wpp:chat.list");
+        }
+    } catch {}
+    if (!indexedDB?.databases) return out;
+    const openDb = (name) => new Promise((resolve, reject) => {
+        const req = indexedDB.open(name);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+    });
+    const walkStore = (store, limit) => new Promise((resolve) => {
+        const rows = [];
+        try {
+            const req = store.openCursor();
+            req.onsuccess = (ev) => {
+                const cursor = ev.target.result;
+                if (!cursor || rows.length >= limit) return resolve(rows);
+                rows.push(cursor.value);
+                cursor.continue();
+            };
+            req.onerror = () => resolve(rows);
+        } catch { resolve(rows); }
+    });
+    const dbs = await indexedDB.databases();
+    for (const dbInfo of dbs) {
+        if (!dbInfo?.name) continue;
+        let db;
+        try { db = await openDb(dbInfo.name); } catch { continue; }
+        try {
+            for (const storeName of Array.from(db.objectStoreNames || [])) {
+                let store;
+                try {
+                    store = db.transaction(storeName, "readonly").objectStore(storeName);
+                } catch { continue; }
+                const rows = await walkStore(store, 25000);
+                for (const row of rows) pushGroup(row, `indexedDB:${dbInfo.name}/${storeName}`);
+            }
+        } finally {
+            try { db.close(); } catch {}
+        }
+    }
+    return out;
+}
+"""
+
+
+def default_group_search_prefixes() -> List[str]:
+    """Prefixos para busca incremental de grupos ausentes no inventário."""
+    letters = [chr(code) for code in range(ord("a"), ord("z") + 1)]
+    digits = [str(d) for d in range(10)]
+    return letters + digits
+
+
+def _normalize_group_name(value: Optional[str]) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip().casefold()
+
+
+def merge_group_entries(
+    existing: List[Dict[str, Any]],
+    supplement: List[Dict[str, Any]],
+) -> tuple[List[Dict[str, Any]], int]:
+    """Mescla entradas de grupos por nome/whatsapp_id."""
+    by_key: Dict[str, Dict[str, Any]] = {}
+    for item in existing:
+        name_key = _normalize_group_name(str(item.get("name") or ""))
+        wid = str(item.get("whatsapp_id") or "").strip().lower()
+        key = wid or f"name:{name_key}"
+        if key:
+            by_key[key] = item
+
+    added = 0
+    for item in supplement:
+        name = str(item.get("name") or "").strip()
+        name_key = _normalize_group_name(name)
+        if not name_key:
+            continue
+        wid = str(item.get("whatsapp_id") or "").strip().lower()
+        key = wid or f"name:{name_key}"
+        if key in by_key:
+            current = by_key[key]
+            if wid and not current.get("whatsapp_id"):
+                current["whatsapp_id"] = item.get("whatsapp_id")
+            if name and not current.get("name"):
+                current["name"] = name
+            continue
+        by_key[key] = item
+        added += 1
+
+    merged = sorted(
+        by_key.values(),
+        key=lambda row: str(row.get("name") or row.get("whatsapp_id") or "").casefold(),
+    )
+    return merged, added
+
+
+async def supplement_groups_from_chat_list(page: Page) -> List[Dict[str, Any]]:
+    """Varre a lista lateral com scroll/filtros para capturar chats ausentes no Store."""
+    collected: Dict[str, Dict[str, Any]] = {}
+
+    try:
+        pane = page.locator("#pane-side")
+        if await pane.count() > 0:
+            await pane.first.click(timeout=3000)
+    except Exception:
+        pass
+
+    try:
+        titles = await page.evaluate(SUPPLEMENT_GROUP_SCROLL_JS)
+    except Exception:
+        titles = []
+
+    for title in titles or []:
+        name = str(title).strip()
+        key = _normalize_group_name(name)
+        if not key or key in collected:
+            continue
+        collected[key] = {
+            "whatsapp_id": None,
+            "name": name,
+            "type": "group",
+            "source": "dom:scroll-supplement",
+            "unread_count": 0,
+            "archived": False,
+            "pinned": False,
+            "muted": False,
+            "last_message_at": None,
+        }
+
+    return list(collected.values())
+
+
+def _group_name_matches_wanted(found: str, wanted: str) -> bool:
+    found_key = _normalize_group_name(found)
+    wanted_key = _normalize_group_name(wanted)
+    if not found_key or not wanted_key:
+        return False
+    return found_key == wanted_key or wanted_key in found_key or found_key in wanted_key
+
+
+async def discover_group_by_search(page: Page, name: str) -> Optional[Dict[str, Any]]:
+    """Tenta localizar um grupo pelo nome usando a busca do WhatsApp Web."""
+    cleaned = (name or "").strip()
+    if not cleaned:
+        return None
+
+    for query in _name_search_queries(cleaned):
+        await clear_search(page)
+        if not await click_search_box(page):
+            continue
+
+        await page.keyboard.press("Control+A")
+        await page.keyboard.type(query, delay=20)
+        await page.wait_for_timeout(2200)
+
+        result = await page.evaluate(
+            FIND_CHAT_RESULT_JS,
+            {"query": query, "fullName": cleaned},
+        )
+        if result and int(result.get("score") or 0) >= 90:
+            title = str(result.get("title") or result.get("text") or cleaned).strip()
+            if _group_name_matches_wanted(title, cleaned):
+                return {
+                    "whatsapp_id": None,
+                    "name": title or cleaned,
+                    "type": "group",
+                    "source": "search:discover",
+                    "unread_count": 0,
+                    "archived": False,
+                    "pinned": False,
+                    "muted": False,
+                    "last_message_at": None,
+                }
+
+        titles = await page.evaluate(COLLECT_SEARCH_RESULT_TITLES_JS, query)
+        for title in titles or []:
+            label = str(title).strip()
+            if _group_name_matches_wanted(label, cleaned):
+                return {
+                    "whatsapp_id": None,
+                    "name": label,
+                    "type": "group",
+                    "source": "search:discover",
+                    "unread_count": 0,
+                    "archived": False,
+                    "pinned": False,
+                    "muted": False,
+                    "last_message_at": None,
+                }
+
+    await clear_search(page)
+    return None
+
+
+async def supplement_groups_by_search_prefixes(
+    page: Page,
+    prefixes: Optional[List[str]] = None,
+    *,
+    existing_names: Optional[set[str]] = None,
+) -> List[Dict[str, Any]]:
+    """Busca por prefixos curtos para descobrir grupos ausentes no inventário."""
+    existing = existing_names or set()
+    collected: Dict[str, Dict[str, Any]] = {}
+    tokens = prefixes or default_group_search_prefixes()
+
+    for token in tokens:
+        query = str(token or "").strip()
+        if not query:
+            continue
+
+        await clear_search(page)
+        if not await click_search_box(page):
+            continue
+
+        await page.keyboard.press("Control+A")
+        await page.keyboard.type(query, delay=15)
+        await page.wait_for_timeout(1800)
+
+        try:
+            titles = await page.evaluate(COLLECT_SEARCH_RESULT_TITLES_JS, query)
+        except Exception:
+            titles = []
+
+        for title in titles or []:
+            name = str(title).strip()
+            key = _normalize_group_name(name)
+            if len(key) < 4 or key in existing or key in collected:
+                continue
+            collected[key] = {
+                "whatsapp_id": None,
+                "name": name,
+                "type": "group",
+                "source": f"search:prefix:{query}",
+                "unread_count": 0,
+                "archived": False,
+                "pinned": False,
+                "muted": False,
+                "last_message_at": None,
+            }
+
+    await clear_search(page)
+    return list(collected.values())
+
+
+def list_group_names_from_targets_file(targets_path: Path) -> List[str]:
+    """Lê nomes de grupos cadastrados em um arquivo targets JSON."""
+    if not targets_path.exists():
+        return []
+
+    try:
+        data = json.loads(targets_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+
+    if not isinstance(data, dict):
+        return []
+
+    names: List[str] = []
+    seen: set[str] = set()
+    for raw in data.get("targets") or []:
+        if str(raw.get("type", "")).strip().lower() != "group":
+            continue
+        name = str(raw.get("name") or "").strip()
+        key = _normalize_group_name(name)
+        if not key or key in seen:
+            continue
+        if name.upper().startswith("NOME EXATO"):
+            continue
+        seen.add(key)
+        names.append(name)
+    return names
 
 
 def group_target_id(name: str, whatsapp_id: Optional[str], used: set[str]) -> str:
@@ -1851,6 +2547,218 @@ def group_target_id(name: str, whatsapp_id: Optional[str], used: set[str]) -> st
         base = candidate
     used.add(base)
     return base
+
+
+def phone_target_id(name: str, phone: str, used: set[str]) -> str:
+    base = safe_id(f"numero_{phone}" if phone else name or "numero")
+    if base in used:
+        suffix = 2
+        candidate = f"{base}_{suffix}"
+        while candidate in used:
+            suffix += 1
+            candidate = f"{base}_{suffix}"
+        base = candidate
+    used.add(base)
+    return base
+
+
+def normalize_phone_digits(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    digits = re.sub(r"\D+", "", value)
+    if len(digits) < 8:
+        return None
+    return digits
+
+
+def contact_phone_digits(contact: Dict[str, Any]) -> Optional[str]:
+    phone = normalize_phone_digits(str(contact.get("phone") or ""))
+    if phone:
+        return phone
+    whatsapp_id = str(contact.get("whatsapp_id") or "")
+    user = whatsapp_id.split("@")[0] if whatsapp_id else ""
+    return normalize_phone_digits(user)
+
+
+def default_targets_document() -> Dict[str, Any]:
+    return {
+        "interval_seconds": 60,
+        "scrolls_per_target": 8,
+        "delay_between_scrolls": 1.0,
+        "delay_between_targets": 2.0,
+        "append_only_new_messages": True,
+        "targets": [],
+    }
+
+
+def merge_contacts_into_targets(
+    targets_path: Path,
+    contacts: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Mescla contatos/números do WhatsApp em targets.json preservando grupos existentes."""
+    if targets_path.exists():
+        data = json.loads(targets_path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("Formato de targets.json inválido.")
+    else:
+        data = default_targets_document()
+
+    raw_targets = data.get("targets") or []
+    if not isinstance(raw_targets, list):
+        raise ValueError("Campo targets inválido em targets.json.")
+
+    non_phone_targets = [item for item in raw_targets if str(item.get("type", "")).lower() != "phone"]
+    phones_by_digits: Dict[str, Dict[str, Any]] = {}
+    used_ids: set[str] = set()
+
+    for item in raw_targets:
+        if str(item.get("type", "")).lower() != "phone":
+            continue
+        phone = normalize_phone_digits(str(item.get("phone") or ""))
+        if not phone:
+            continue
+        phones_by_digits[phone] = item
+        used_ids.add(safe_id(str(item.get("id") or phone)))
+
+    added = 0
+    updated = 0
+    for contact in contacts:
+        phone = contact_phone_digits(contact)
+        if not phone:
+            continue
+        name = str(contact.get("name") or phone).strip()
+        metadata = {
+            "whatsapp_id": contact.get("whatsapp_id"),
+            "source": contact.get("source"),
+            "unread_count": contact.get("unread_count", 0),
+            "archived": contact.get("archived", False),
+            "pinned": contact.get("pinned", False),
+            "muted": contact.get("muted", False),
+            "last_message_at": contact.get("last_message_at"),
+        }
+
+        if phone in phones_by_digits:
+            existing = phones_by_digits[phone]
+            if name and name != phone:
+                existing["name"] = name
+            existing.setdefault("metadata", {}).update(metadata)
+            updated += 1
+            continue
+
+        target_id = phone_target_id(name, phone, used_ids)
+        phones_by_digits[phone] = {
+            "id": target_id,
+            "type": "phone",
+            "phone": phone,
+            "name": name,
+            "enabled": False,
+            "send": {"enabled": False, "message": ""},
+            "metadata": metadata,
+        }
+        added += 1
+
+    merged_phones = sorted(
+        phones_by_digits.values(),
+        key=lambda item: str(item.get("name") or item.get("phone") or "").casefold(),
+    )
+    data["targets"] = non_phone_targets + merged_phones
+    targets_path.parent.mkdir(parents=True, exist_ok=True)
+    targets_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    return {
+        "ok": True,
+        "added": added,
+        "updated": updated,
+        "total_phones": len(merged_phones),
+        "total_targets": len(data["targets"]),
+        "targets_path": str(targets_path),
+    }
+
+
+def merge_groups_into_targets(
+    targets_path: Path,
+    groups: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Mescla grupos do inventário em targets.json preservando telefones."""
+    if targets_path.exists():
+        data = json.loads(targets_path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("Formato de targets.json inválido.")
+    else:
+        data = default_targets_document()
+
+    raw_targets = data.get("targets") or []
+    if not isinstance(raw_targets, list):
+        raise ValueError("Campo targets inválido em targets.json.")
+
+    non_group_targets = [item for item in raw_targets if str(item.get("type", "")).lower() != "group"]
+    groups_by_key: Dict[str, Dict[str, Any]] = {}
+    used_ids: set[str] = set()
+
+    for item in raw_targets:
+        if str(item.get("type", "")).lower() != "group":
+            continue
+        name_key = _normalize_group_name(str(item.get("name") or ""))
+        wid = str(item.get("metadata", {}).get("whatsapp_id") or item.get("whatsapp_id") or "").lower()
+        key = wid or f"name:{name_key}"
+        if not key:
+            continue
+        groups_by_key[key] = item
+        used_ids.add(safe_id(str(item.get("id") or item.get("name") or "grupo")))
+
+    added = 0
+    updated = 0
+    for group in groups:
+        name = str(group.get("name") or "").strip()
+        name_key = _normalize_group_name(name)
+        whatsapp_id = group.get("whatsapp_id")
+        key = str(whatsapp_id or "").strip().lower() or f"name:{name_key}"
+        if not name_key and not whatsapp_id:
+            continue
+        metadata = {
+            "whatsapp_id": whatsapp_id,
+            "source": group.get("source"),
+            "unread_count": group.get("unread_count", 0),
+            "archived": group.get("archived", False),
+            "pinned": group.get("pinned", False),
+            "muted": group.get("muted", False),
+            "last_message_at": group.get("last_message_at"),
+        }
+        if key in groups_by_key:
+            existing = groups_by_key[key]
+            if name:
+                existing["name"] = name
+            existing.setdefault("metadata", {}).update(metadata)
+            updated += 1
+            continue
+
+        target_id = group_target_id(name or str(whatsapp_id or "grupo"), str(whatsapp_id) if whatsapp_id else None, used_ids)
+        groups_by_key[key] = {
+            "id": target_id,
+            "type": "group",
+            "name": name or target_id,
+            "enabled": False,
+            "send": {"enabled": False, "message": ""},
+            "metadata": metadata,
+        }
+        added += 1
+
+    merged_groups = sorted(
+        groups_by_key.values(),
+        key=lambda item: str(item.get("name") or item.get("id") or "").casefold(),
+    )
+    data["targets"] = non_group_targets + merged_groups
+    targets_path.parent.mkdir(parents=True, exist_ok=True)
+    targets_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    return {
+        "ok": True,
+        "added": added,
+        "updated": updated,
+        "total_groups": len(merged_groups),
+        "total_targets": len(data["targets"]),
+        "targets_path": str(targets_path),
+    }
 
 
 def build_groups_targets_json(groups: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -1892,8 +2800,13 @@ def build_groups_targets_json(groups: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
-async def extract_whatsapp_groups(page: Page) -> Dict[str, Any]:
-    result = await page.evaluate(EXTRACT_WHATSAPP_GROUPS_JS)
+async def extract_whatsapp_groups(
+    page: Page,
+    *,
+    resolve_names: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    await wait_for_whatsapp_sync_idle(page, timeout_ms=120_000)
+    result = await page.evaluate(EXTRACT_WHATSAPP_CHATS_JS, "groups")
     if not isinstance(result, dict):
         return {
             "ok": False,
@@ -1903,9 +2816,70 @@ async def extract_whatsapp_groups(page: Page) -> Dict[str, Any]:
             "diagnostics": {"error": "Resultado inválido retornado pelo navegador."},
         }
 
+    groups = list(result.get("groups") or [])
+    try:
+        store_groups = await page.evaluate(EXTRACT_INDEXEDDB_GROUPS_JS)
+    except Exception:
+        store_groups = []
+    if isinstance(store_groups, list) and store_groups:
+        groups, store_added = merge_group_entries(groups, store_groups)
+    else:
+        store_added = 0
+
+    supplement = await supplement_groups_from_chat_list(page)
+    groups, scroll_added = merge_group_entries(groups, supplement)
+
+    existing_names = {_normalize_group_name(str(item.get("name") or "")) for item in groups}
+    prefix_supplement = await supplement_groups_by_search_prefixes(
+        page,
+        existing_names=existing_names,
+    )
+    groups, prefix_added = merge_group_entries(groups, prefix_supplement)
+
+    search_discovered: List[Dict[str, Any]] = []
+    for name in resolve_names or []:
+        key = _normalize_group_name(name)
+        if not key or key in existing_names:
+            continue
+        entry = await discover_group_by_search(page, name)
+        if entry:
+            search_discovered.append(entry)
+            existing_names.add(_normalize_group_name(str(entry.get("name") or "")))
+
+    groups, search_added = merge_group_entries(groups, search_discovered)
+
+    raw_diag = result.get("diagnostics")
+    diagnostics: dict[str, Any] = dict(raw_diag) if isinstance(raw_diag, dict) else {}
+    diagnostics["store_deep_scan_added"] = store_added
+    diagnostics["store_deep_scan_found"] = len(store_groups) if isinstance(store_groups, list) else 0
+    diagnostics["scroll_supplement_added"] = scroll_added
+    diagnostics["scroll_supplement_found"] = len(supplement)
+    diagnostics["search_prefix_added"] = prefix_added
+    diagnostics["search_prefix_found"] = len(prefix_supplement)
+    diagnostics["search_discover_added"] = search_added
+    diagnostics["search_discover_found"] = len(search_discovered)
+    result["groups"] = groups
+    result["diagnostics"] = diagnostics
     result["generated_at"] = now_iso()
-    result.setdefault("groups", [])
-    result["total_groups"] = len(result.get("groups") or [])
+    result["total_groups"] = len(groups)
+    result["ok"] = bool(result.get("ok")) or len(groups) > 0
+    return result
+
+
+async def extract_whatsapp_contacts(page: Page) -> Dict[str, Any]:
+    result = await page.evaluate(EXTRACT_WHATSAPP_CHATS_JS, "contacts")
+    if not isinstance(result, dict):
+        return {
+            "ok": False,
+            "generated_at": now_iso(),
+            "total_contacts": 0,
+            "contacts": [],
+            "diagnostics": {"error": "Resultado inválido retornado pelo navegador."},
+        }
+
+    result["generated_at"] = now_iso()
+    result.setdefault("contacts", [])
+    result["total_contacts"] = len(result.get("contacts") or [])
     return result
 
 
@@ -1956,8 +2930,55 @@ async def cmd_list_groups(args: argparse.Namespace) -> None:
         await playwright.stop()
 
 
+async def cmd_list_contacts(args: argparse.Namespace) -> None:
+    app_config = load_app_config()
+    app_config.export_dir.mkdir(parents=True, exist_ok=True)
+
+    output_path = Path(args.output)
+    if not output_path.is_absolute():
+        output_path = PROJECT_ROOT / output_path
+
+    targets_path = Path(args.targets)
+    if not targets_path.is_absolute():
+        targets_path = PROJECT_ROOT / targets_path
+
+    playwright, context, page = await open_whatsapp(app_config)
+    try:
+        await wait_for_whatsapp_ready(page, app_config.ready_timeout)
+        print("")
+        print("Buscando números/contatos disponíveis na sessão atual do WhatsApp Web...")
+        result = await extract_whatsapp_contacts(page)
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        contacts = result.get("contacts") or []
+        print(f"Contatos encontrados: {len(contacts)}")
+        print(f"Inventário JSON: {output_path}")
+
+        if args.print_names:
+            for index, contact in enumerate(contacts, start=1):
+                label = contact.get("name") or contact.get("phone") or contact.get("whatsapp_id")
+                print(f"  {index:03d}. {label}")
+
+        merge_outcome = merge_contacts_into_targets(targets_path, contacts)
+        print(f"Targets atualizado: {targets_path}")
+        print(
+            f"Números no targets.json: {merge_outcome['total_phones']} "
+            f"(+{merge_outcome['added']} novos, {merge_outcome['updated']} atualizados)"
+        )
+
+        if not contacts:
+            print("")
+            print("Nenhum contato foi extraído automaticamente.")
+            print("Deixe o WhatsApp Web terminar a sincronização e execute novamente.")
+    finally:
+        await context.close()
+        await playwright.stop()
+
+
 async def process_send_target(
-    page: Page,
+    page: Page | None,
     app_config: AppConfig,
     target: Target,
     message: str,
@@ -1981,15 +3002,24 @@ async def process_send_target(
         print(f"Mensagem: {message}")
         return build_send_record(target, message, {"ok": True}, dry_run=True)
 
+    if page is None:
+        return build_send_record(
+            target,
+            message,
+            {"ok": False, "error": "Página Playwright indisponível para envio real."},
+            dry_run=False,
+        )
+
+    open_error: Optional[str] = None
     if target.type == "phone":
-        opened = await open_chat_by_phone(page, target.phone or "", message=message)
+        opened, open_error = await open_chat_by_phone(page, target.phone or "", message=message)
     else:
-        opened = await open_target(page, target)
+        opened, open_error = await open_target(page, target)
     if not opened:
         record = build_send_record(
             target,
             message,
-            {"ok": False, "error": "Não foi possível abrir a conversa."},
+            {"ok": False, "error": open_error or "Não foi possível abrir a conversa."},
             dry_run=False,
         )
         try:
@@ -2029,7 +3059,7 @@ async def process_send_target(
 
 
 async def run_send_once(
-    page: Page,
+    page: Page | None,
     app_config: AppConfig,
     targets_config: TargetsConfig,
     *,
@@ -2038,13 +3068,13 @@ async def run_send_once(
     dry_run: bool = True,
 ) -> List[Dict[str, Any]]:
     selected_ids = {safe_id(item) for item in (target_ids or []) if item}
-    enabled_targets = [t for t in targets_config.targets if t.enabled]
-
     if selected_ids:
-        enabled_targets = [t for t in enabled_targets if t.id in selected_ids]
+        selected_targets = [t for t in targets_config.targets if t.id in selected_ids]
+    else:
+        selected_targets = [t for t in targets_config.targets if t.enabled]
 
     send_targets: List[Tuple[Target, str]] = []
-    for target in enabled_targets:
+    for target in selected_targets:
         if message_override is not None:
             send_targets.append((target, message_override))
         elif target.send_enabled and target.message:
@@ -2106,12 +3136,12 @@ async def process_target(
     print("")
     print(f"=== Alvo: {target.id} | tipo={target.type} | nome={target.name or target.phone} ===")
 
-    opened = await open_target(page, target)
+    opened, open_error = await open_target(page, target)
     if not opened:
         return {
             "target_id": target.id,
             "ok": False,
-            "error": "Não foi possível abrir a conversa.",
+            "error": open_error or "Não foi possível abrir a conversa.",
             "new_messages": 0,
             "captured_messages": 0,
         }
@@ -2444,6 +3474,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="Mostra no terminal o nome dos grupos encontrados.",
     )
     p_groups.set_defaults(func=cmd_list_groups)
+
+    p_contacts = sub.add_parser(
+        "list-contacts",
+        help="Lista números/contatos do WhatsApp Web e atualiza config/targets.json.",
+    )
+    p_contacts.add_argument(
+        "--output",
+        default="exports/contacts/contacts.json",
+        help="Arquivo JSON de inventário dos contatos encontrados.",
+    )
+    p_contacts.add_argument(
+        "--targets",
+        default="config/targets.json",
+        help="Arquivo targets.json que será atualizado com os números encontrados.",
+    )
+    p_contacts.add_argument(
+        "--print-names",
+        action="store_true",
+        help="Mostra no terminal o nome/telefone dos contatos encontrados.",
+    )
+    p_contacts.set_defaults(func=cmd_list_contacts)
 
     return parser
 

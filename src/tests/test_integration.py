@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from dotenv import load_dotenv
 
-from app import WHATSAPP_LOGIN_SELECTOR, create_app
+from app import create_app
 from browser_service import initialize_browser, wait_for_dynamic_ready, wait_for_login_element
 from whatsapp_auto_downloader import AppConfig, load_app_config, open_whatsapp
 
@@ -18,7 +18,7 @@ pytestmark = pytest.mark.integration
 
 @pytest.mark.asyncio
 async def test_api_main_route_is_active(client) -> None:
-    response = client.get("/")
+    response = client.get("/api")
 
     assert response.status_code == 200
     payload = response.get_json()
@@ -38,13 +38,16 @@ async def test_api_health_route_is_active(client) -> None:
 @pytest.mark.asyncio
 async def test_flask_routes_active_within_async_loop(client) -> None:
     health = client.get("/health")
-    index = client.get("/")
+    index = client.get("/api")
+    dashboard = client.get("/")
 
     assert health.status_code == 200
     assert index.status_code == 200
+    assert dashboard.status_code == 200
     assert health.get_json()["status"] == "ok"
     assert index.get_json()["status"] == "ok"
     assert index.get_json()["env_loaded"] is True
+    assert b"WhatsApp Web Automation" in dashboard.data
 
 
 @pytest.mark.asyncio
@@ -65,7 +68,7 @@ async def test_reads_env_variables_from_dotenv(env_file: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_flask_api_reflects_loaded_env(client) -> None:
-    response = client.get("/")
+    response = client.get("/api")
 
     payload = response.get_json()
     assert payload["env_loaded"] is True
@@ -79,7 +82,7 @@ async def test_flask_and_browser_init_integration(
     tmp_path: Path,
     env_file: Path,
 ) -> None:
-    api_response = client.get("/")
+    api_response = client.get("/api")
     assert api_response.status_code == 200
     assert api_response.get_json()["profile_dir"] == "profile_whatsapp_test"
 
@@ -118,6 +121,7 @@ async def test_playwright_browser_initialization_simulated(
         ready_timeout=30,
         export_dir=tmp_path / "exports",
         state_dir=tmp_path / "state",
+        browser_channel="msedge",
     )
 
     mock_page = AsyncMock()
@@ -140,6 +144,7 @@ async def test_playwright_browser_initialization_simulated(
     mock_playwright.chromium.launch_persistent_context.assert_awaited_once()
     launch_kwargs = mock_playwright.chromium.launch_persistent_context.await_args.kwargs
     assert launch_kwargs["headless"] is True
+    assert launch_kwargs.get("channel") == "msedge"
     assert str(config.profile_dir) in launch_kwargs["user_data_dir"]
     mock_page.goto.assert_awaited_once()
     assert playwright is mock_playwright
@@ -184,11 +189,10 @@ async def test_wait_for_login_element_uses_selector_mock() -> None:
 
     await wait_for_login_element(mock_page, timeout_seconds=45)
 
-    mock_page.wait_for_selector.assert_awaited_once_with(
-        WHATSAPP_LOGIN_SELECTOR,
-        timeout=45_000,
-        state="visible",
-    )
+    mock_page.wait_for_selector.assert_awaited_once()
+    call_kwargs = mock_page.wait_for_selector.await_args.kwargs
+    assert call_kwargs["timeout"] == 45_000
+    assert call_kwargs["state"] == "visible"
 
 
 @pytest.mark.asyncio

@@ -98,3 +98,87 @@ def test_flask_groups_generate(client, monkeypatch: pytest.MonkeyPatch) -> None:
     assert payload["ok"] is True
     assert payload["total_groups"] == 2
     mock_job.assert_awaited_once()
+
+
+def test_flask_groups_send_targets(client, tmp_path: Path) -> None:
+    template = tmp_path / "groups_targets.json"
+    template.write_text(
+        json.dumps(
+            {
+                "targets": [
+                    {
+                        "id": "grupo_a",
+                        "type": "group",
+                        "name": "Grupo A",
+                        "enabled": True,
+                        "send": {"enabled": True, "message": "Oi"},
+                    },
+                    {
+                        "id": "grupo_b",
+                        "type": "group",
+                        "name": "Grupo B",
+                        "enabled": False,
+                        "send": {"enabled": False, "message": ""},
+                    },
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    response = client.get(f"/api/groups/send-targets?targets_output={template.as_posix()}")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["total"] == 2
+    assert payload["enabled_count"] == 1
+    assert payload["targets"][0]["name"] == "Grupo A"
+
+
+def test_flask_groups_selection_persists_enabled(client, tmp_path: Path) -> None:
+    template = tmp_path / "groups_targets.json"
+    template.write_text(
+        json.dumps(
+            {
+                "targets": [
+                    {
+                        "id": "grupo_a",
+                        "type": "group",
+                        "name": "Grupo A",
+                        "enabled": False,
+                        "send": {"enabled": False, "message": ""},
+                    },
+                    {
+                        "id": "grupo_b",
+                        "type": "group",
+                        "name": "Grupo B",
+                        "enabled": False,
+                        "send": {"enabled": False, "message": ""},
+                    },
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    response = client.post(
+        "/api/groups/selection",
+        json={
+            "targets_output": template.as_posix(),
+            "selected_ids": ["grupo_b"],
+            "message": "Mensagem grupo B",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["ok"] is True
+    assert payload["enabled_count"] == 1
+
+    saved = json.loads(template.read_text(encoding="utf-8"))
+    by_id = {item["id"]: item for item in saved["targets"]}
+    assert by_id["grupo_b"]["enabled"] is True
+    assert by_id["grupo_b"]["send"]["message"] == "Mensagem grupo B"
+    assert by_id["grupo_a"]["enabled"] is False

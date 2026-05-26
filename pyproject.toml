@@ -9,3 +9,23 @@ select = ["E", "F", "I", "W"]
 "src/tests/*" = ["E501"]
 "src/whatsapp_auto_downloader.py" = ["E501", "I001"]
 "src/whatsapp_browser_automation.py" = ["E501", "I001"]
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "src/tests/*",
+    "src/whatsapp_browser_automation.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+
+[tool.mypy]
+python_version = "3.12"
+files = [
+    "src/tests/conftest.py",
+    "src/whatsapp_auto_downloader.py",
+    "src/browser_diagnostics.py",
+]
+ignore_missing_imports = true

@@ -2,51 +2,25 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 import pytest
 
 pytestmark = [pytest.mark.integration]
 
 
-@pytest.fixture
-def targets_file(tmp_path: Path) -> Path:
-    path = tmp_path / "targets.json"
-    path.write_text(
-        json.dumps(
-            {
-                "targets": [
-                    {
-                        "id": "grupo_teste",
-                        "type": "group",
-                        "name": "Grupo Teste",
-                        "enabled": True,
-                        "send": {
-                            "enabled": True,
-                            "message": "Mensagem via Flask",
-                        },
-                    }
-                ]
-            },
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
-    )
-    return path
-
-
-def test_flask_list_send_targets(client, targets_file: Path) -> None:
+def test_flask_list_send_targets(client, targets_file) -> None:
     response = client.get(f"/api/send/targets?targets={targets_file.as_posix()}")
 
     assert response.status_code == 200
     payload = response.get_json()
-    assert len(payload["targets"]) == 1
-    assert payload["targets"][0]["id"] == "grupo_teste"
-    assert payload["targets"][0]["send_enabled"] is True
+    assert len(payload["targets"]) == 2
+    ids = {item["id"] for item in payload["targets"]}
+    assert ids == {"grupo_teste", "numero_teste"}
+    by_id = {item["id"]: item for item in payload["targets"]}
+    assert by_id["grupo_teste"]["send_enabled"] is True
+    assert by_id["numero_teste"]["phone"] == "5562999000000"
 
 
-def test_flask_send_once_dry_run(client, targets_file: Path) -> None:
+def test_flask_send_once_dry_run(client, targets_file) -> None:
     response = client.post(
         "/api/send/once",
         json={
@@ -65,7 +39,7 @@ def test_flask_send_once_dry_run(client, targets_file: Path) -> None:
     assert payload["results"][0]["message"] == "Mensagem via Flask"
 
 
-def test_flask_send_once_requires_target_ids_with_message(client, targets_file: Path) -> None:
+def test_flask_send_once_requires_target_ids_with_message(client, targets_file) -> None:
     response = client.post(
         "/api/send/once",
         json={
@@ -81,7 +55,7 @@ def test_flask_send_once_requires_target_ids_with_message(client, targets_file: 
     assert "target_ids" in payload["error"]
 
 
-def test_flask_send_once_with_message_and_target(client, targets_file: Path) -> None:
+def test_flask_send_once_with_message_and_target(client, targets_file) -> None:
     response = client.post(
         "/api/send/once",
         json={

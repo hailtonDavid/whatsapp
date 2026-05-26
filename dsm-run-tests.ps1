@@ -1,21 +1,22 @@
-# DSM — executar testes no ambiente local e gerar JSON para upload no GestorSistema.
+# DSM — executar testes no ambiente local (alinhado à detecção do DSM, v6)
 # Uso: .\dsm-run-tests.ps1 -ProjectRoot "D:\\caminho\\do\\projeto"
+# Revisão automática no DSM antes do download; versões guardadas em test_script_versions.
 param(
   [Parameter(Mandatory = $false)]
-  [string]$ProjectRoot = "D:\\Sistemas\\whatsapp",
+  [string]$ProjectRoot = 'D:\\Sistemas\\whatsapp',
   [string]$OutFile = "dsm-test-results.json",
-  [switch]$SkipAutoInstall
+  [switch]$SkipAutoInstall,
+  [switch]$Strict
 )
 
 $ErrorActionPreference = "Continue"
-$ScriptVersion = "4"
+$ScriptVersion = "6"
 $started = (Get-Date).ToString("o")
 $items = @()
-$notes = @("script_version=$ScriptVersion")
+$notes = @("script_version=$ScriptVersion", "generator=dsm-external-test-script-v6")
 
 if (-not (Test-Path -LiteralPath $ProjectRoot)) {
   Write-Error "Pasta do projeto não encontrada: $ProjectRoot"
-  Write-Host "Use: .\dsm-run-tests.ps1 -ProjectRoot 'D:\\Sistemas\\GestorSistema'"
   exit 2
 }
 $root = (Resolve-Path -LiteralPath $ProjectRoot).ProviderPath
@@ -59,47 +60,20 @@ function Ensure-ProjectVenv {
   return $boot
 }
 
-function Install-ProjectTestDeps {
-  param(
-    [Parameter(Mandatory = $true)][string]$PythonExe,
-    [bool]$FullSuite = $false
-  )
-  $out = @()
-  Write-Host "A instalar dependencias de teste (pip)..."
-  $out += Run-TestCmd @($PythonExe, "-m", "pip", "install", "-q", "--disable-pip-version-check", "pip", "wheel")
-  if (Test-ProjPath "requirements.txt") {
-    $out += Run-TestCmd @($PythonExe, "-m", "pip", "install", "-q", "-r", "requirements.txt")
-  }
-  if (Test-ProjPath "requirements-dev.txt") {
-    $out += Run-TestCmd @($PythonExe, "-m", "pip", "install", "-q", "-r", "requirements-dev.txt")
-  }
-  $pkgs = @("pytest", "ruff")
-  if ($FullSuite) { $pkgs += @("coverage", "mypy") }
-  $pipCmd = @($PythonExe, "-m", "pip", "install", "-q") + $pkgs
-  $out += Run-TestCmd $pipCmd
-  return $out
-}
-
-function Test-PythonRepoLayout {
-  if ((Test-ProjPath "tests") -or (Test-ProjPath "pytest.ini") -or (Test-ProjPath "pyproject.toml") -or (Test-ProjPath "conftest.py")) {
-    return $true
-  }
-  if ((Test-ProjPath "requirements.txt") -or (Test-ProjPath "setup.py") -or (Test-ProjPath "src")) {
-    return $true
-  }
-  $py = Get-ChildItem -LiteralPath $root -Filter "*.py" -Recurse -File -ErrorAction SilentlyContinue |
-    Where-Object { $_.FullName -notmatch '\\(\.git|\.venv|venv|node_modules|profile_|exports)\\' } |
-    Select-Object -First 1
-  return ($null -ne $py)
-}
-
 function Run-TestCmd {
   param([Parameter(Mandatory = $true)][string[]]$Command)
+  if (-not $Command -or $Command.Count -eq 0) {
+    return @{
+      command = @("empty")
+      returncode = -1
+      stdout = ""
+      stderr = "Comando vazio"
+      elapsed_ms = 0
+    }
+  }
   $exe = $Command[0]
   $args = @()
-  if ($Command.Length -gt 1) {
-    $args = $Command[1..($Command.Length - 1)]
-  }
+  if ($Command.Length -gt 1) { $args = $Command[1..($Command.Length - 1)] }
   $outFile = Join-Path $env:TEMP ("dsm-test-out-" + [guid]::NewGuid().ToString("n") + ".txt")
   $errFile = Join-Path $env:TEMP ("dsm-test-err-" + [guid]::NewGuid().ToString("n") + ".txt")
   $sw = [System.Diagnostics.Stopwatch]::StartNew()
@@ -114,131 +88,152 @@ function Run-TestCmd {
     $err = $_.Exception.Message
   }
   $sw.Stop()
-  if (-not $err) { $err = "" }
   $out = ""
   if ($outFile -and (Test-Path -LiteralPath $outFile)) { $out = Get-Content -LiteralPath $outFile -Raw -ErrorAction SilentlyContinue }
-  if ($errFile -and (Test-Path -LiteralPath $errFile)) { $err = Get-Content -LiteralPath $errFile -Raw -ErrorAction SilentlyContinue }
+  if ($errFile -and (Test-Path -LiteralPath $errFile)) {
+    $err = Get-Content -LiteralPath $errFile -Raw -ErrorAction SilentlyContinue
+  }
   Remove-Item -LiteralPath $outFile,$errFile -Force -ErrorAction SilentlyContinue
+  $outS = ($out | Out-String)
+  $errS = ($err | Out-String)
   return @{
     command = $Command
     returncode = $code
-    stdout = ($out | Out-String).Substring(0, [Math]::Min(200000, ($out | Out-String).Length))
-    stderr = ($err | Out-String).Substring(0, [Math]::Min(80000, ($err | Out-String).Length))
+    stdout = $outS.Substring(0, [Math]::Min(200000, $outS.Length))
+    stderr = $errS.Substring(0, [Math]::Min(80000, $errS.Length))
     elapsed_ms = [int]$sw.ElapsedMilliseconds
   }
 }
 
-function Get-VenvPytest {
-  foreach ($rel in @(".venv\Scripts\pytest.exe", "venv\Scripts\pytest.exe")) {
+function Get-VenvTool([string]$tool) {
+  foreach ($rel in @(".venv\Scripts\$tool.exe", "venv\Scripts\$tool.exe")) {
     $p = Join-Path $root $rel
     if (Test-Path -LiteralPath $p) { return $p }
   }
   return $null
 }
 
-function Invoke-PyTestRun {
-  param([string]$TargetDir = "")
-  $pytestExe = Get-VenvPytest
-  if ($pytestExe) {
-    $cmd = @($pytestExe, "-q", "--maxfail=5")
-    if ($TargetDir) { $cmd += $TargetDir }
-    Write-Host "Executando: $($cmd -join ' ')"
-    return Run-TestCmd $cmd
-  }
-  $py = Get-ProjectPython
-  if ($py) {
-    $cmd = @($py, "-m", "pytest", "-q", "--maxfail=5")
-    if ($TargetDir) { $cmd += $TargetDir }
-    Write-Host "Executando: $($cmd -join ' ')"
-    return Run-TestCmd $cmd
-  }
-  foreach ($pair in @(
-    ,@("pytest", "-q", "--maxfail=5")
-    ,@("py", "-m", "pytest", "-q", "--maxfail=5")
-  )) {
-    if (Get-Command $pair[0] -ErrorAction SilentlyContinue) {
-      $cmd = @($pair[0]) + ($pair[1] -split '\s+')
-      if ($TargetDir) { $cmd += $TargetDir }
-      return Run-TestCmd $cmd
+function Resolve-PlannedCommand {
+  param($step)
+  if (-not $step) { return $null }
+  $resolver = [string]$step.resolver
+  switch ($resolver) {
+    "project_python" {
+      $py = Get-ProjectPython
+      if (-not $py) { $py = Ensure-ProjectVenv }
+      if (-not $py) { return $null }
+      $ma = @($step.module_args)
+      return @($py) + $ma
     }
-  }
-  return @{
-    command = @("pytest")
-    returncode = -127
-    stdout = ""
-    stderr = "pytest nao encontrado. No venv do projeto: python -m pip install pytest"
-    elapsed_ms = 0
+    "pytest" {
+      $pt = Get-VenvTool "pytest"
+      if ($pt) { return @($pt) + @($step.args) }
+      $py = Get-ProjectPython
+      if (-not $py) { $py = Ensure-ProjectVenv }
+      if ($py) { return @($py, "-m", "pytest") + @($step.args) }
+      return $null
+    }
+    "ruff" {
+      $rf = Get-VenvTool "ruff"
+      if ($rf) { return @($rf) + @($step.args) }
+      if (Get-Command ruff -ErrorAction SilentlyContinue) { return @("ruff") + @($step.args) }
+      $py = Get-ProjectPython
+      if (-not $py) { $py = Ensure-ProjectVenv }
+      if ($py) { return @($py, "-m", "ruff") + @($step.args) }
+      return $null
+    }
+    "plain" {
+      return @($step.argv)
+    }
+    default { return $null }
   }
 }
 
-$hasPyTests = (Test-ProjPath "tests") -or (Test-ProjPath "pytest.ini") -or (Test-ProjPath "pyproject.toml") -or (Test-ProjPath "conftest.py")
-$hasPyRepo = Test-PythonRepoLayout
-$notes += "has_py_tests=$hasPyTests; has_py_repo=$hasPyRepo"
-$py = $null
-if (($hasPyTests -or $hasPyRepo) -and (-not $SkipAutoInstall)) {
+$planJson = @'
+{
+  "generator_version": 6,
+  "producer": "dsm-external-test-script-v6",
+  "full_suite": true,
+  "packages_to_install": ["pytest", "ruff", "coverage", "mypy", "radon"],
+  "run_steps": [
+    {
+      "resolver": "project_python",
+      "label": "coverage run -m pytest -q --maxfail=5",
+      "module_args": ["-m", "coverage", "run", "-m", "pytest", "-q", "--maxfail=5"]
+    },
+    {
+      "resolver": "project_python",
+      "label": "coverage report -m",
+      "module_args": ["-m", "coverage", "report", "-m"]
+    },
+    {
+      "resolver": "ruff",
+      "label": "ruff check .",
+      "args": ["check", "."]
+    },
+    {
+      "resolver": "project_python",
+      "label": "mypy .",
+      "module_args": ["-m", "mypy", "."]
+    },
+    {
+      "resolver": "project_python",
+      "label": "radon cc -s -n B src",
+      "module_args": ["-m", "radon", "cc", "-s", "-n", "B", "src"]
+    }
+  ],
+  "command_labels": [
+    "coverage run -m pytest -q --maxfail=5",
+    "coverage report -m",
+    "ruff check .",
+    "mypy .",
+    "radon cc -s -n B src"
+  ],
+  "review_ok": true
+}
+'@
+$plan = $planJson | ConvertFrom-Json
+$notes += "plan_steps=$($plan.run_steps.Count)"
+
+if (-not $SkipAutoInstall) {
   $py = Ensure-ProjectVenv
   if ($py) {
     $notes += "deps_auto_install=true"
-  }
-}
-if ($hasPyTests) {
-  $notes += "mode=pytest_suite"
-  if ($py -and (-not $SkipAutoInstall)) {
-    foreach ($step in (Install-ProjectTestDeps -PythonExe $py -FullSuite $true)) { $items += $step }
-  }
-  $items += Invoke-PyTestRun ""
-} elseif ($hasPyRepo) {
-  $notes += "mode=python_smoke"
-  if (-not $py) { $py = Get-ProjectPython }
-  if (-not $py) { $py = Get-BootstrapPython }
-  if ($py) {
-    if (-not $SkipAutoInstall) {
-      foreach ($step in (Install-ProjectTestDeps -PythonExe $py -FullSuite $false)) { $items += $step }
+    $items += Run-TestCmd @($py, "-m", "pip", "install", "-q", "--disable-pip-version-check", "pip", "wheel")
+    if (Test-ProjPath "requirements.txt") {
+      $items += Run-TestCmd @($py, "-m", "pip", "install", "-q", "-r", "requirements.txt")
     }
-    $target = if (Test-ProjPath "src") { "src" } else { "" }
-    Write-Host "Smoke: compileall + pytest (python=$py)"
-    $compilePath = if ($target) { $target } else { "." }
-    $items += Run-TestCmd @($py, "-m", "compileall", "-q", $compilePath)
-    $items += Invoke-PyTestRun $target
-    $ruffInVenv = Join-Path $root "venv\Scripts\ruff.exe"
-    if (-not (Test-Path -LiteralPath $ruffInVenv)) { $ruffInVenv = Join-Path $root ".venv\Scripts\ruff.exe" }
-    if (Test-Path -LiteralPath $ruffInVenv) {
-      $rt = if ($target) { $target } else { "." }
-      $items += Run-TestCmd @($ruffInVenv, "check", $rt)
-    } elseif (Get-Command ruff -ErrorAction SilentlyContinue) {
-      $rt = if ($target) { $target } else { "." }
-      $items += Run-TestCmd @("ruff", "check", $rt)
+    if (Test-ProjPath "requirements-dev.txt") {
+      $items += Run-TestCmd @($py, "-m", "pip", "install", "-q", "-r", "requirements-dev.txt")
+    }
+    $pkgs = @($plan.packages_to_install)
+    if ($pkgs.Count -gt 0) {
+      $pipCmd = @($py, "-m", "pip", "install", "-q") + $pkgs
+      $items += Run-TestCmd $pipCmd
     }
   } else {
     $notes += "python_missing=true"
+  }
+}
+
+foreach ($step in $plan.run_steps) {
+  $cmd = Resolve-PlannedCommand $step
+  $lab = [string]$step.label
+  if (-not $cmd) {
+    $msg = "Nao foi possivel resolver: $lab"
+    Write-Warning $msg
     $items += @{
-      command = @("python")
+      command = @("unresolved")
       returncode = -127
       stdout = ""
-      stderr = "Python nao encontrado. Crie .venv no projeto ou adicione python/py ao PATH."
+      stderr = $msg
       elapsed_ms = 0
     }
+    if ($Strict) { break }
+    continue
   }
-} else {
-  $notes += "mode=none"
-}
-if (Test-ProjPath "package.json") {
-  if (Get-Command npm -ErrorAction SilentlyContinue) {
-    Write-Host "Executando: npm test"
-    $items += Run-TestCmd @("npm", "test", "--", "--watch=false")
-  } else {
-    $notes += "npm_missing=true"
-  }
-}
-if (Test-ProjPath "pom.xml") {
-  if (Get-Command mvn -ErrorAction SilentlyContinue) {
-    $items += Run-TestCmd @("mvn", "-q", "test")
-  }
-}
-if (Test-ProjPath "go.mod") {
-  if (Get-Command go -ErrorAction SilentlyContinue) {
-    $items += Run-TestCmd @("go", "test", "./...")
-  }
+  Write-Host "Executando: $($cmd -join ' ')"
+  $items += Run-TestCmd $cmd
 }
 
 if ($items.Count -eq 0) {
@@ -247,20 +242,21 @@ if ($items.Count -eq 0) {
     command = @("none")
     returncode = -1
     stdout = ""
-    stderr = "Nenhuma suite executada. Atualize o script (versao 3) no DSM e use -ProjectRoot com a pasta que contem src/ ou tests/."
+    stderr = "Nenhum comando executado. Atualize o script no DSM (versao 6) e confira a pasta do projeto."
     elapsed_ms = 0
   }
 }
 
 $failed = @($items | Where-Object { $_.returncode -ne 0 }).Count
 $report = @{
-  producer = "dsm-external-test-script-v4"
+  producer = "dsm-external-test-script-v6"
   script_version = $ScriptVersion
   project_name = "WhatsApp"
   project_root = $root
   root_hint_container = "/mnt/d/Sistemas/whatsapp"
   started_at = $started
   detection_notes = ($notes -join "; ")
+  planned_commands = @($plan.command_labels)
   results = @($items)
   stats = @{
     total = $items.Count
@@ -268,13 +264,14 @@ $report = @{
     passed = [Math]::Max(0, $items.Count - $failed)
   }
 }
-$json = $report | ConvertTo-Json -Depth 10 -Compress:$false
+$json = $report | ConvertTo-Json -Depth 12 -Compress:$false
 $utf8NoBom = New-Object System.Text.UTF8Encoding $false
 $outPath = Join-Path (Get-Location) $OutFile
 [System.IO.File]::WriteAllText($outPath, $json, $utf8NoBom)
 Write-Host ""
 Write-Host "Relatorio salvo em $outPath"
 Write-Host "Comandos: $($items.Count) | Falhas: $failed"
+if ($Strict -and $failed -gt 0) { exit 1 }
 foreach ($r in $items) {
   $cmd = ($r.command -join ' ')
   Write-Host ("  [0] {1} ({2} ms)" -f $r.returncode, $cmd, $r.elapsed_ms)

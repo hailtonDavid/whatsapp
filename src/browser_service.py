@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from playwright.async_api import BrowserContext, Page, Playwright
 
+from browser_diagnostics import wait_for_visible_selector
 from wa_selectors import WHATSAPP_LOGIN_SELECTOR
 from whatsapp_auto_downloader import AppConfig, open_whatsapp, wait_for_whatsapp_ready
 
@@ -13,11 +16,19 @@ async def initialize_browser(config: AppConfig) -> tuple[Playwright, BrowserCont
     return await open_whatsapp(config)
 
 
-async def wait_for_login_element(page: Page, timeout_seconds: int = 60) -> None:
-    """Aguarda elementos dinâmicos da tela de login (QR Code / ajuda)."""
-    await page.wait_for_selector(
+async def wait_for_login_element(
+    page: Page,
+    timeout_seconds: int = 60,
+    *,
+    diagnostics_dir: Path | None = None,
+) -> None:
+    """Aguarda elementos dinâmicos da tela de login (QR Code / ajuda) — RF06."""
+    await wait_for_visible_selector(
+        page,
         WHATSAPP_LOGIN_SELECTOR,
-        timeout=timeout_seconds * 1000,
+        timeout_seconds=timeout_seconds,
+        label="rf06_login",
+        diagnostics_dir=diagnostics_dir,
         state="visible",
     )
 

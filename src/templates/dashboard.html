@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WhatsApp Web Automation</title>
+  <style>
+    :root {
+      --bg: #111b21;
+      --panel: #1f2c34;
+      --panel-2: #2a3942;
+      --text: #e9edef;
+      --muted: #8696a0;
+      --accent: #25d366;
+      --accent-dark: #1da851;
+      --danger: #ea4335;
+      --warn: #f59e0b;
+      --border: #3b4a54;
+      --radius: 12px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    header {
+      padding: 1.25rem 1.5rem;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      align-items: center;
+      justify-content: space-between;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+    header p { margin: 0.15rem 0 0; color: var(--muted); font-size: 0.9rem; }
+    .badges { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .badge {
+      padding: 0.35rem 0.75rem;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+    }
+    .badge.ok { color: var(--accent); border-color: rgba(37,211,102,.35); }
+    .badge.warn { color: var(--warn); }
+    .badge.err { color: var(--danger); }
+    main {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 1.5rem;
+      display: grid;
+      gap: 1rem;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem 1.1rem;
+    }
+    .card h2 {
+      margin: 0 0 0.75rem;
+      font-size: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .card.full { grid-column: 1 / -1; }
+    label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 0.35rem; }
+    input[type=text], textarea, select {
+      width: 100%;
+      background: var(--panel-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.6rem 0.75rem;
+      font: inherit;
+    }
+    textarea { min-height: 88px; resize: vertical; }
+    .row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem; }
+    button {
+      border: none;
+      border-radius: 8px;
+      padding: 0.55rem 0.9rem;
+      font: inherit;
+      cursor: pointer;
+      background: var(--panel-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    button:hover { filter: brightness(1.08); }
+    button.primary { background: var(--accent); color: #072816; border-color: transparent; font-weight: 600; }
+    button.primary:hover { background: var(--accent-dark); }
+    button.danger { background: rgba(234,67,53,.15); color: #ffb4ae; border-color: rgba(234,67,53,.35); }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
+    .targets-list {
+      max-height: 180px;
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.5rem;
+      background: var(--panel-2);
+    }
+    .groups-list {
+      max-height: 280px;
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.5rem;
+      background: var(--panel-2);
+      margin-top: 0.35rem;
+    }
+    .groups-toolbar {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-top: 0.5rem;
+    }
+    .groups-toolbar input[type=search] { flex: 1; min-width: 160px; }
+    .groups-meta { font-size: 0.82rem; color: var(--muted); margin-top: 0.35rem; }
+    .target-item {
+      display: flex;
+      gap: 0.5rem;
+      align-items: flex-start;
+      padding: 0.35rem 0.25rem;
+      font-size: 0.9rem;
+    }
+    .target-item small { color: var(--muted); display: block; }
+    .phone-edit-row {
+      display: grid;
+      grid-template-columns: auto 1fr 1fr;
+      gap: 0.45rem;
+      align-items: center;
+      width: 100%;
+    }
+    .phone-edit-row input[type="text"] {
+      width: 100%;
+      padding: 0.35rem 0.45rem;
+      font-size: 0.85rem;
+    }
+    .pager {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      margin-top: 0.45rem;
+      font-size: 0.85rem;
+    }
+    .pager button { padding: 0.35rem 0.65rem; }
+    .hint { font-size: 0.82rem; color: var(--muted); margin-top: 0.5rem; }
+    pre.output {
+      margin: 0;
+      padding: 0.85rem;
+      background: #0b141a;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: auto;
+      max-height: 320px;
+      font-size: 0.78rem;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .loading { color: var(--warn); font-size: 0.85rem; }
+    .checkbox-row { display: flex; align-items: center; gap: 0.4rem; margin: 0.5rem 0; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>WhatsApp Web Automation</h1>
+      <p>Painel de controle — use os botões abaixo para automação, envio e grupos</p>
+      <p class="hint" style="margin-top:0.35rem">URL deste painel: <strong id="panel-url"></strong> · A API JSON fica em <strong>/api</strong></p>
+    </div>
+    <div class="badges" id="status-badges">
+      <span class="badge">Carregando...</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>Automação / Navegador</h2>
+      <p class="hint">Por padrão o Playwright roda em <strong>segundo plano</strong> (<code>WA_HEADLESS=true</code>). Use “Abrir visível” apenas para escanear QR Code na primeira vez.</p>
+      <div class="row">
+        <button type="button" id="btn-validate">Validar configuração</button>
+        <button type="button" class="primary" id="btn-launch">Iniciar sessão (segundo plano)</button>
+        <button type="button" id="btn-launch-visible">Abrir visível (QR Code)</button>
+        <button type="button" class="danger" id="btn-stop">Parar sessão</button>
+        <button type="button" id="btn-refresh-status">Atualizar status</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Enviar mensagens</h2>
+      <label for="targets-file">Arquivo de alvos</label>
+      <input type="text" id="targets-file" value="config/targets.json">
+      <div class="row">
+        <button type="button" id="btn-load-targets">Carregar alvos</button>
+      </div>
+      <label style="margin-top:0.75rem">Alvos habilitados</label>
+      <div class="targets-list" id="targets-list">
+        <span class="hint">Clique em "Carregar alvos".</span>
+      </div>
+      <label for="message" style="margin-top:0.75rem">Mensagem (opcional — sobrescreve a do JSON)</label>
+      <textarea id="message" placeholder="Deixe vazio para usar a mensagem configurada em cada alvo."></textarea>
+      <label class="checkbox-row">
+        <input type="checkbox" id="confirm-send"> Enviar de verdade (desmarcado = simulação)
+      </label>
+      <div class="row">
+        <button type="button" class="primary" id="btn-send">Executar envio</button>
+        <button type="button" id="btn-last-send">Ver último envio</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Números cadastrados</h2>
+      <p class="hint">Lista números do <code>targets.json</code> — selecione e envie mensagem individual para cada um.</p>
+      <p class="hint">Use <strong>Sincronizar números do WhatsApp</strong> para importar todos os contatos da sessão e atualizar o <code>targets.json</code>.</p>
+      <label for="phones-targets-file">Arquivo de alvos (números)</label>
+      <input type="text" id="phones-targets-file" value="config/targets.json">
+      <div class="row">
+        <button type="button" class="primary" id="btn-sync-contacts">Sincronizar números do WhatsApp</button>
+        <button type="button" id="btn-last-contacts">Ver inventário salvo</button>
+        <button type="button" id="btn-load-phones">Carregar números</button>
+      </div>
+      <div class="groups-toolbar">
+        <input type="search" id="phones-search" placeholder="Filtrar por número ou id..." disabled>
+        <label class="checkbox-row" style="margin:0">
+          <input type="checkbox" id="phones-select-all" disabled> Todos visíveis
+        </label>
+      </div>
+      <div class="groups-meta" id="phones-meta">Nenhum número carregado.</div>
+      <div class="pager" id="phones-pager" hidden>
+        <button type="button" id="phones-prev">Anterior</button>
+        <span id="phones-page-label">Página 1</span>
+        <button type="button" id="phones-next">Próxima</button>
+      </div>
+      <div class="groups-list" id="phones-list">
+        <span class="hint">Clique em “Carregar números”.</span>
+      </div>
+      <div class="row">
+        <button type="button" class="primary" id="btn-save-phones" disabled>Salvar seleção</button>
+        <button type="button" id="btn-save-phone-edits" disabled>Salvar números editados</button>
+        <button type="button" id="btn-send-phones" disabled>Enviar para selecionados</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Inventário de grupos</h2>
+      <p class="hint">Gera a lista a partir do WhatsApp Web e mescla em <code>config/targets.json</code>.</p>
+      <label class="checkbox-row">
+        <input type="checkbox" id="groups-merge-config" checked> Mesclar grupos no config/targets.json
+      </label>
+      <label for="groups-extra-names">Grupos extras para localizar (um por linha)</label>
+      <textarea id="groups-extra-names" placeholder="Opcional: nomes exatos que faltaram no inventário (um por linha)" style="min-height:56px"></textarea>
+      <label for="groups-targets-file">Arquivo de grupos (targets)</label>
+      <input type="text" id="groups-targets-file" value="exports/groups/groups_targets_template.json">
+      <div class="row">
+        <button type="button" class="primary" id="btn-generate-groups">Gerar lista de grupos</button>
+        <button type="button" id="btn-load-groups">Carregar grupos</button>
+        <button type="button" id="btn-last-groups">Ver inventário salvo</button>
+      </div>
+      <div class="groups-toolbar">
+        <input type="search" id="groups-search" placeholder="Filtrar por nome do grupo..." disabled>
+        <label class="checkbox-row" style="margin:0">
+          <input type="checkbox" id="groups-select-all" disabled> Todos visíveis
+        </label>
+      </div>
+      <div class="groups-meta" id="groups-meta">Nenhum grupo carregado.</div>
+      <div class="pager" id="groups-pager" hidden>
+        <button type="button" id="groups-prev">Anterior</button>
+        <span id="groups-page-label">Página 1</span>
+        <button type="button" id="groups-next">Próxima</button>
+      </div>
+      <div class="groups-list" id="groups-list">
+        <span class="hint">Clique em “Gerar lista” ou “Carregar grupos”.</span>
+      </div>
+      <div class="row">
+        <button type="button" class="primary" id="btn-save-groups" disabled>Salvar seleção</button>
+        <button type="button" id="btn-send-groups" disabled>Enviar para selecionados</button>
+      </div>
+    </section>
+
+    <section class="card full">
+      <h2>Resultado <span class="loading" id="loading" hidden>Processando...</span></h2>
+      <pre class="output" id="output">Aguardando ação...</pre>
+    </section>
+  </main>
+
+  <script>
+    const output = document.getElementById("output");
+    const loading = document.getElementById("loading");
+    const badges = document.getElementById("status-badges");
+
+    function show(data) {
+      output.textContent = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+    }
+
+    async function api(path, options = {}) {
+      loading.hidden = false;
+      try {
+        const res = await fetch(path, {
+          headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+          ...options,
+        });
+        const text = await res.text();
+        let body;
+        try { body = JSON.parse(text); } catch { body = text; }
+        if (!res.ok) {
+          show({ status: res.status, error: body });
+          return { ok: false, status: res.status, body };
+        }
+        show(body);
+        return { ok: true, status: res.status, body };
+      } catch (err) {
+        show({ error: String(err) });
+        return { ok: false, error: err };
+      } finally {
+        loading.hidden = true;
+        refreshStatus();
+      }
+    }
+
+    function renderBadges(status) {
+      const env = status.env_loaded ? "ok" : "err";
+      const envLabel = status.env_loaded ? "Env OK" : "Env ausente";
+      const auto = status.automation_status || "unknown";
+      const autoClass = auto === "running" ? "ok" : auto === "ready" ? "ok" : "warn";
+      const headlessLabel = status.headless ? "Headless (2º plano)" : "Visível";
+      badges.innerHTML = `
+        <span class="badge ${env}">${envLabel}</span>
+        <span class="badge ${autoClass}">Automação: ${auto}</span>
+        <span class="badge">${status.session_active ? "Sessão ativa" : "Sessão parada"}</span>
+        <span class="badge">${headlessLabel}</span>
+        <span class="badge">${status.profile_dir || "-"}</span>
+      `;
+    }
+
+    async function refreshStatus() {
+      try {
+        const res = await fetch("/api/automation/status");
+        const status = await res.json();
+        renderBadges(status);
+      } catch {
+        badges.innerHTML = '<span class="badge err">Sem conexão</span>';
+      }
+    }
+
+    function selectedTargetIds() {
+      return [...document.querySelectorAll(".target-checkbox:checked")].map(el => el.value);
+    }
+
+    function selectedGroupIds() {
+      return [...document.querySelectorAll(".group-checkbox:checked")].map(el => el.value);
+    }
+
+    function selectedPhoneIds() {
+      syncPhoneEditsFromDom();
+      return Object.entries(phoneEdits)
+        .filter(([, edit]) => edit.enabled)
+        .map(([id]) => id);
+    }
+
+    let loadedGroups = [];
+    let loadedPhones = [];
+    let phoneEdits = {};
+    let phonesPage = 0;
+    let groupsPage = 0;
+    const PAGE_SIZE = 60;
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function syncPhoneEditsFromDom() {
+      document.querySelectorAll(".phone-edit-number").forEach(el => {
+        const id = el.dataset.id;
+        if (!id) return;
+        phoneEdits[id] = phoneEdits[id] || {};
+        phoneEdits[id].phone = el.value.trim();
+      });
+      document.querySelectorAll(".phone-edit-message").forEach(el => {
+        const id = el.dataset.id;
+        if (!id) return;
+        phoneEdits[id] = phoneEdits[id] || {};
+        phoneEdits[id].message = el.value.trim();
+      });
+      document.querySelectorAll(".phone-checkbox").forEach(el => {
+        const id = el.value;
+        if (!id) return;
+        phoneEdits[id] = phoneEdits[id] || {};
+        phoneEdits[id].enabled = el.checked;
+      });
+    }
+
+    function seedPhoneEdits(phones) {
+      phoneEdits = {};
+      for (const p of phones || []) {
+        phoneEdits[p.id] = {
+          phone: p.phone || "",
+          message: p.message || "",
+          enabled: !!p.enabled,
+          name: p.name || "",
+        };
+      }
+    }
+
+    function groupsTargetsFile() {
+      return document.getElementById("groups-targets-file").value.trim();
+    }
+
+    function setGroupsControlsEnabled(enabled) {
+      document.getElementById("groups-search").disabled = !enabled;
+      document.getElementById("groups-select-all").disabled = !enabled;
+      document.getElementById("btn-save-groups").disabled = !enabled;
+      document.getElementById("btn-send-groups").disabled = !enabled;
+    }
+
+    function renderGroups(groups) {
+      loadedGroups = groups || [];
+      const list = document.getElementById("groups-list");
+      const meta = document.getElementById("groups-meta");
+      const pager = document.getElementById("groups-pager");
+      const filter = document.getElementById("groups-search").value.trim().toLowerCase();
+
+      if (!loadedGroups.length) {
+        list.innerHTML = '<span class="hint">Nenhum grupo encontrado. Gere o inventário primeiro.</span>';
+        meta.textContent = "Nenhum grupo carregado.";
+        pager.hidden = true;
+        setGroupsControlsEnabled(false);
+        return;
+      }
+
+      const visible = loadedGroups.filter(g => {
+        const label = `${g.name || ""} ${g.id || ""}`.toLowerCase();
+        return !filter || label.includes(filter);
+      });
+
+      if (filter) groupsPage = 0;
+      const totalPages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+      if (groupsPage >= totalPages) groupsPage = totalPages - 1;
+      const pageItems = visible.slice(groupsPage * PAGE_SIZE, (groupsPage + 1) * PAGE_SIZE);
+
+      const enabledCount = loadedGroups.filter(g => g.enabled).length;
+      meta.textContent = `${loadedGroups.length} grupos · ${enabledCount} habilitados · ${visible.length} no filtro · página ${groupsPage + 1}/${totalPages}`;
+
+      if (!pageItems.length) {
+        list.innerHTML = '<span class="hint">Nenhum grupo corresponde ao filtro.</span>';
+      } else {
+        list.innerHTML = pageItems.map(g => `
+          <label class="target-item group-item" data-name="${escapeHtml((g.name || g.id || "").toLowerCase())}">
+            <input type="checkbox" class="group-checkbox" value="${escapeHtml(g.id)}" ${g.enabled ? "checked" : ""}>
+            <span><strong>${escapeHtml(g.name || g.id)}</strong><small>${escapeHtml(g.id)}${g.send_enabled ? " · envio habilitado" : ""}</small></span>
+          </label>
+        `).join("");
+      }
+
+      pager.hidden = visible.length <= PAGE_SIZE;
+      document.getElementById("groups-page-label").textContent = `Página ${groupsPage + 1} de ${totalPages}`;
+      document.getElementById("groups-prev").disabled = groupsPage <= 0;
+      document.getElementById("groups-next").disabled = groupsPage >= totalPages - 1;
+
+      setGroupsControlsEnabled(true);
+      const selectAll = document.getElementById("groups-select-all");
+      selectAll.checked = pageItems.length > 0 && pageItems.every(g => {
+        const el = list.querySelector(`.group-checkbox[value="${CSS.escape(g.id)}"]`);
+        return el && el.checked;
+      });
+    }
+
+    async function loadGroupsList() {
+      const file = groupsTargetsFile();
+      const result = await api(`/api/groups/send-targets?targets_output=${encodeURIComponent(file)}`);
+      if (result.ok && result.body.targets) {
+        renderGroups(result.body.targets);
+      }
+    }
+
+    function phonesTargetsFile() {
+      return document.getElementById("phones-targets-file").value.trim();
+    }
+
+    function setPhonesControlsEnabled(enabled) {
+      document.getElementById("phones-search").disabled = !enabled;
+      document.getElementById("phones-select-all").disabled = !enabled;
+      document.getElementById("btn-save-phones").disabled = !enabled;
+      document.getElementById("btn-save-phone-edits").disabled = !enabled;
+      document.getElementById("btn-send-phones").disabled = !enabled;
+    }
+
+    function renderPhones(phones, resetEdits = false) {
+      loadedPhones = phones || [];
+      if (resetEdits) {
+        seedPhoneEdits(loadedPhones);
+      } else {
+        syncPhoneEditsFromDom();
+        for (const p of loadedPhones) {
+          if (!phoneEdits[p.id]) {
+            phoneEdits[p.id] = {
+              phone: p.phone || "",
+              message: p.message || "",
+              enabled: !!p.enabled,
+              name: p.name || "",
+            };
+          }
+        }
+      }
+      const list = document.getElementById("phones-list");
+      const meta = document.getElementById("phones-meta");
+      const pager = document.getElementById("phones-pager");
+      const filter = document.getElementById("phones-search").value.trim().toLowerCase();
+
+      if (!loadedPhones.length) {
+        list.innerHTML = '<span class="hint">Nenhum número cadastrado neste arquivo.</span>';
+        meta.textContent = "Nenhum número carregado.";
+        pager.hidden = true;
+        setPhonesControlsEnabled(false);
+        return;
+      }
+
+      const visible = loadedPhones.filter(p => {
+        const label = `${p.phone || ""} ${p.id || ""} ${p.name || ""}`.toLowerCase();
+        return !filter || label.includes(filter);
+      });
+
+      if (filter) phonesPage = 0;
+      const totalPages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+      if (phonesPage >= totalPages) phonesPage = totalPages - 1;
+      const pageItems = visible.slice(phonesPage * PAGE_SIZE, (phonesPage + 1) * PAGE_SIZE);
+
+      const enabledCount = loadedPhones.filter(p => p.enabled).length;
+      meta.textContent = `${loadedPhones.length} números · ${enabledCount} habilitados · ${visible.length} no filtro · página ${phonesPage + 1}/${totalPages}`;
+
+      if (!pageItems.length) {
+        list.innerHTML = '<span class="hint">Nenhum número corresponde ao filtro.</span>';
+      } else {
+        list.innerHTML = pageItems.map(p => {
+          const edit = phoneEdits[p.id] || {};
+          return `
+          <div class="target-item phone-item" data-name="${escapeHtml((p.phone || p.id || "").toLowerCase())}">
+            <label class="phone-edit-row">
+              <input type="checkbox" class="phone-checkbox" value="${escapeHtml(p.id)}" ${edit.enabled ? "checked" : ""}>
+              <input type="text" class="phone-edit-number" data-id="${escapeHtml(p.id)}" value="${escapeHtml(edit.phone || p.phone || "")}" placeholder="Telefone">
+              <input type="text" class="phone-edit-message" data-id="${escapeHtml(p.id)}" value="${escapeHtml(edit.message || p.message || "")}" placeholder="Mensagem individual">
+            </label>
+            <small>${escapeHtml(p.id)}${p.name ? " · " + escapeHtml(p.name) : ""}</small>
+          </div>`;
+        }).join("");
+      }
+
+      pager.hidden = visible.length <= PAGE_SIZE;
+      document.getElementById("phones-page-label").textContent = `Página ${phonesPage + 1} de ${totalPages}`;
+      document.getElementById("phones-prev").disabled = phonesPage <= 0;
+      document.getElementById("phones-next").disabled = phonesPage >= totalPages - 1;
+
+      setPhonesControlsEnabled(true);
+      const selectAll = document.getElementById("phones-select-all");
+      selectAll.checked = pageItems.length > 0 && pageItems.every(p => {
+        const el = list.querySelector(`.phone-checkbox[value="${CSS.escape(p.id)}"]`);
+        return el && el.checked;
+      });
+    }
+
+    async function loadPhonesList() {
+      const file = phonesTargetsFile();
+      const result = await api(`/api/phones/send-targets?targets=${encodeURIComponent(file)}`);
+      if (result.ok && result.body.targets) {
+        renderPhones(result.body.targets, true);
+      }
+    }
+
+    function renderTargets(targets) {
+      const list = document.getElementById("targets-list");
+      if (!targets.length) {
+        list.innerHTML = '<span class="hint">Nenhum alvo habilitado encontrado.</span>';
+        return;
+      }
+      list.innerHTML = targets.map(t => `
+        <label class="target-item">
+          <input type="checkbox" class="target-checkbox" value="${t.id}" checked>
+          <span><strong>${t.id}</strong> (${t.type})<small>${t.name || t.phone || ""}${t.send_enabled ? " · envio habilitado" : ""}</small></span>
+        </label>
+      `).join("");
+    }
+
+    document.getElementById("btn-refresh-status").addEventListener("click", refreshStatus);
+    document.getElementById("btn-validate").addEventListener("click", () =>
+      api("/api/automation/start", { method: "POST", body: "{}" })
+    );
+    document.getElementById("btn-launch").addEventListener("click", () =>
+      api("/api/automation/start", { method: "POST", body: JSON.stringify({ launch: true }) })
+    );
+    document.getElementById("btn-launch-visible").addEventListener("click", async () => {
+      const result = await api("/api/automation/start", {
+        method: "POST",
+        body: JSON.stringify({ launch: true, visible: true }),
+      });
+      if (result.ok && result.body?.message) {
+        show(result.body);
+      }
+    });
+    document.getElementById("btn-stop").addEventListener("click", () =>
+      api("/api/automation/stop", { method: "POST", body: "{}" })
+    );
+    document.getElementById("btn-load-targets").addEventListener("click", async () => {
+      const file = document.getElementById("targets-file").value;
+      const result = await api(`/api/send/targets?targets=${encodeURIComponent(file)}`);
+      if (result.ok && result.body.targets) renderTargets(result.body.targets);
+    });
+    document.getElementById("btn-send").addEventListener("click", () => {
+      const target_ids = selectedTargetIds();
+      const message = document.getElementById("message").value.trim();
+      const confirm = document.getElementById("confirm-send").checked;
+      const targets = document.getElementById("targets-file").value;
+      if (!target_ids.length && message) {
+        show({ error: "Selecione ao menos um alvo ou deixe a mensagem vazia." });
+        return;
+      }
+      api("/api/send/once", {
+        method: "POST",
+        body: JSON.stringify({ targets, target_ids, message: message || undefined, confirm }),
+      });
+    });
+    document.getElementById("btn-last-send").addEventListener("click", () => api("/api/send/last"));
+    document.getElementById("btn-sync-contacts").addEventListener("click", async () => {
+      const targets = phonesTargetsFile();
+      const result = await api("/api/contacts/sync", {
+        method: "POST",
+        body: JSON.stringify({ targets }),
+      });
+      if (result.ok) await loadPhonesList();
+    });
+    document.getElementById("btn-last-contacts").addEventListener("click", () => api("/api/contacts/last"));
+    document.getElementById("btn-load-phones").addEventListener("click", loadPhonesList);
+    document.getElementById("phones-search").addEventListener("input", () => renderPhones(loadedPhones));
+    document.getElementById("phones-prev").addEventListener("click", () => {
+      syncPhoneEditsFromDom();
+      phonesPage = Math.max(0, phonesPage - 1);
+      renderPhones(loadedPhones);
+    });
+    document.getElementById("phones-next").addEventListener("click", () => {
+      syncPhoneEditsFromDom();
+      phonesPage += 1;
+      renderPhones(loadedPhones);
+    });
+    document.getElementById("phones-select-all").addEventListener("change", (ev) => {
+      const checked = ev.target.checked;
+      document.querySelectorAll(".phones-list .phone-checkbox, #phones-list .phone-checkbox").forEach(el => {
+        const item = el.closest(".phone-item");
+        const filter = document.getElementById("phones-search").value.trim().toLowerCase();
+        const name = item?.dataset.name || "";
+        if (!filter || name.includes(filter)) el.checked = checked;
+      });
+    });
+    document.getElementById("btn-save-phones").addEventListener("click", async () => {
+      syncPhoneEditsFromDom();
+      const selected_ids = selectedPhoneIds();
+      const message = document.getElementById("message").value.trim();
+      const result = await api("/api/phones/selection", {
+        method: "POST",
+        body: JSON.stringify({
+          targets: phonesTargetsFile(),
+          selected_ids,
+          message: message || undefined,
+        }),
+      });
+      if (result.ok) await loadPhonesList();
+    });
+    document.getElementById("btn-save-phone-edits").addEventListener("click", async () => {
+      syncPhoneEditsFromDom();
+      const byId = new Map((loadedPhones || []).map(p => [p.id, p]));
+      const updates = Object.entries(phoneEdits)
+        .map(([id, edit]) => {
+          const original = byId.get(id) || {};
+          const phone = edit.phone ?? original.phone ?? "";
+          const message = edit.message ?? original.message ?? "";
+          const enabled = edit.enabled ?? !!original.enabled;
+          const changed =
+            phone !== (original.phone || "") ||
+            message !== (original.message || "") ||
+            enabled !== !!original.enabled;
+          if (!changed) return null;
+          return { id, phone, message, enabled };
+        })
+        .filter(Boolean);
+      if (!updates.length) {
+        show({ ok: true, message: "Nenhuma alteração para salvar." });
+        return;
+      }
+      const result = await api("/api/phones/update", {
+        method: "POST",
+        body: JSON.stringify({
+          targets: phonesTargetsFile(),
+          updates,
+        }),
+      });
+      if (result.ok) await loadPhonesList();
+    });
+    document.getElementById("btn-send-phones").addEventListener("click", () => {
+      const target_ids = selectedPhoneIds();
+      const message = document.getElementById("message").value.trim();
+      const confirm = document.getElementById("confirm-send").checked;
+      const targets = phonesTargetsFile();
+      if (!target_ids.length) {
+        show({ error: "Selecione ao menos um número." });
+        return;
+      }
+      if (!message) {
+        show({ error: "Informe a mensagem antes de enviar para os números." });
+        return;
+      }
+      api("/api/send/once", {
+        method: "POST",
+        body: JSON.stringify({ targets, target_ids, message, confirm }),
+      });
+    });
+    document.getElementById("btn-generate-groups").addEventListener("click", async () => {
+      const file = groupsTargetsFile();
+      const mergeConfig = document.getElementById("groups-merge-config").checked;
+      const extraNames = document.getElementById("groups-extra-names").value
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(Boolean);
+      const result = await api("/api/groups/generate", {
+        method: "POST",
+        body: JSON.stringify({
+          targets_output: file,
+          merge_into_config: mergeConfig,
+          merge_targets: mergeConfig ? "config/targets.json" : null,
+          resolve_names: extraNames,
+        }),
+      });
+      if (result.ok) await loadGroupsList();
+    });
+    document.getElementById("btn-load-groups").addEventListener("click", loadGroupsList);
+    document.getElementById("btn-last-groups").addEventListener("click", () => api("/api/groups/last"));
+    document.getElementById("groups-search").addEventListener("input", () => renderGroups(loadedGroups));
+    document.getElementById("groups-prev").addEventListener("click", () => {
+      groupsPage = Math.max(0, groupsPage - 1);
+      renderGroups(loadedGroups);
+    });
+    document.getElementById("groups-next").addEventListener("click", () => {
+      groupsPage += 1;
+      renderGroups(loadedGroups);
+    });
+    document.getElementById("groups-select-all").addEventListener("change", (ev) => {
+      const checked = ev.target.checked;
+      document.querySelectorAll(".group-item:not([hidden]) .group-checkbox, .groups-list .group-checkbox").forEach(el => {
+        const item = el.closest(".group-item");
+        const filter = document.getElementById("groups-search").value.trim().toLowerCase();
+        const name = item?.dataset.name || "";
+        if (!filter || name.includes(filter)) el.checked = checked;
+      });
+    });
+    document.getElementById("btn-save-groups").addEventListener("click", async () => {
+      const selected_ids = selectedGroupIds();
+      const message = document.getElementById("message").value.trim();
+      const result = await api("/api/groups/selection", {
+        method: "POST",
+        body: JSON.stringify({
+          targets_output: groupsTargetsFile(),
+          selected_ids,
+          message: message || undefined,
+        }),
+      });
+      if (result.ok) await loadGroupsList();
+    });
+    document.getElementById("btn-send-groups").addEventListener("click", () => {
+      const target_ids = selectedGroupIds();
+      const message = document.getElementById("message").value.trim();
+      const confirm = document.getElementById("confirm-send").checked;
+      const targets = groupsTargetsFile();
+      if (!target_ids.length) {
+        show({ error: "Selecione ao menos um grupo." });
+        return;
+      }
+      if (!message) {
+        show({ error: "Informe a mensagem antes de enviar para os grupos." });
+        return;
+      }
+      api("/api/send/once", {
+        method: "POST",
+        body: JSON.stringify({ targets, target_ids, message, confirm }),
+      });
+    });
+
+    refreshStatus();
+    document.getElementById("panel-url").textContent = window.location.origin + "/";
+  </script>
+</body>
+</html>
