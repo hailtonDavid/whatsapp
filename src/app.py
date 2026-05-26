@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
 from pathlib import Path
 
@@ -12,9 +11,12 @@ from flask import Flask, Response, jsonify, redirect, request
 from automation_loop import run_automation_coroutine
 from automation_service import (
     apply_group_selection,
+    apply_group_updates,
     apply_phone_selection,
     apply_phone_updates,
     automation_is_running,
+    automation_job_timeout,
+    ensure_whatsapp_authorized,
     execute_list_groups_job,
     execute_send_job,
     execute_sync_contacts_job,
@@ -24,10 +26,12 @@ from automation_service import (
     list_phone_send_targets,
     list_send_targets,
     load_env_before_browser,
+    probe_held_session_auth,
     read_contacts_inventory,
     read_groups_inventory,
     read_groups_targets_template,
     read_last_send_results,
+    save_uploaded_attachment,
     stop_automation,
 )
 from wa_selectors import WHATSAPP_LOGIN_SELECTOR
@@ -70,6 +74,7 @@ def _parse_send_payload(*, default_targets: str) -> dict:
         "targets": payload.get("targets") or request.args.get("targets") or default_targets,
         "target_ids": target_ids,
         "message": payload.get("message"),
+        "attachment": payload.get("attachment") or payload.get("attachment_path"),
         "allow_all": bool(payload.get("allow_all", False)),
         "confirm": bool(payload.get("confirm", False)),
     }
@@ -173,10 +178,12 @@ def create_app(
                 "endpoints": {
                     "health": "/health",
                     "automation_status": "/api/automation/status",
+                    "automation_ensure_auth": "POST /api/automation/ensure-auth",
                     "automation_start": "POST /api/automation/start",
                     "automation_stop": "POST /api/automation/stop",
                     "send_once": "POST /api/send/once",
                     "send_last": "/api/send/last",
+                    "uploads": "POST /api/uploads",
                     "send_targets": "/api/send/targets",
                     "phones_send_targets": "/api/phones/send-targets",
                     "phones_selection": "POST /api/phones/selection",
@@ -188,6 +195,7 @@ def create_app(
                     "groups_targets_template": "/api/groups/targets-template",
                     "groups_send_targets": "/api/groups/send-targets",
                     "groups_selection": "POST /api/groups/selection",
+                    "groups_update": "POST /api/groups/update",
                 },
             }
         ), 200
@@ -207,6 +215,23 @@ def create_app(
             automation_state = "ready"
         else:
             automation_state = "blocked"
+
+        auth_fields: dict[str, object] = {
+            "session_state": None,
+            "whatsapp_authorized": None,
+        }
+        if session_active:
+            try:
+                auth_fields = run_automation_coroutine(
+                    probe_held_session_auth(Path(app.config["ENV_FILE"])),
+                    timeout=10,
+                )
+            except (RuntimeError, TimeoutError):
+                auth_fields = {
+                    "session_state": "unknown",
+                    "whatsapp_authorized": None,
+                }
+
         return jsonify(
             {
                 "automation_status": automation_state,
@@ -215,8 +240,46 @@ def create_app(
                 "profile_dir": config.profile_dir.name,
                 "headless": session_headless if session_headless is not None else config.headless,
                 "whatsapp_url": WA_URL,
+                **auth_fields,
             }
         ), 200
+
+    @app.post("/api/automation/ensure-auth")
+    def automation_ensure_auth():
+        if not app.config["ENV_LOADED"]:
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": "Variáveis de ambiente não carregadas.",
+                }
+            ), 400
+
+        config = app.config["APP_CONFIG"]
+        try:
+            outcome = run_automation_coroutine(
+                ensure_whatsapp_authorized(Path(app.config["ENV_FILE"])),
+                timeout=45,
+            )
+        except RuntimeError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        except TimeoutError:
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": (
+                        "Tempo esgotado ao verificar autorização do WhatsApp Web. "
+                        "Feche instâncias do Edge e tente novamente."
+                    ),
+                }
+            ), 504
+
+        status_code = 200 if outcome.get("ok") else 403
+        return jsonify(
+            {
+                **outcome,
+                "automation_status": "running" if outcome.get("session_active") else "ready",
+            }
+        ), status_code
 
     @app.post("/api/automation/start")
     def automation_start():
@@ -278,10 +341,24 @@ def create_app(
                 ), 504
 
             active_headless = get_held_automation_headless()
+            try:
+                auth_fields = run_automation_coroutine(
+                    probe_held_session_auth(Path(app.config["ENV_FILE"])),
+                    timeout=20,
+                )
+            except (RuntimeError, TimeoutError):
+                auth_fields = {"session_state": "unknown", "whatsapp_authorized": None}
+
+            launch_message: str | None = None
+            if auth_fields.get("whatsapp_authorized") is False:
+                launch_message = "WhatsApp não autorizado — escaneie o QR Code na janela do Edge."
+            elif visible or active_headless is False:
+                launch_message = "Navegador visível aberto — escaneie o QR Code na janela do Edge."
+
             return jsonify(
                 {
-                    "automation_status": "running",
-                    "session_active": True,
+                    "automation_status": "running" if automation_is_running() else "ready",
+                    "session_active": automation_is_running(),
                     "service": "whatsapp-web-automation",
                     "env_loaded": bootstrap.env_loaded,
                     "profile_dir": config.profile_dir.name,
@@ -290,11 +367,8 @@ def create_app(
                     "ready_timeout": config.ready_timeout,
                     "whatsapp_url": WA_URL,
                     "login_selector": WHATSAPP_LOGIN_SELECTOR,
-                    "message": (
-                        "Navegador visível aberto — escaneie o QR Code na janela do Edge."
-                        if visible
-                        else None
-                    ),
+                    "message": launch_message,
+                    **auth_fields,
                 }
             ), 200
 
@@ -318,7 +392,10 @@ def create_app(
             return jsonify({"ok": False, "error": "Variáveis de ambiente não carregadas."}), 400
 
         try:
-            outcome = run_automation_coroutine(stop_automation(), timeout=120)
+            outcome = run_automation_coroutine(
+                stop_automation(Path(app.config["ENV_FILE"])),
+                timeout=120,
+            )
         except RuntimeError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
 
@@ -438,6 +515,26 @@ def create_app(
             }
         ), 200
 
+    @app.post("/api/uploads")
+    def uploads_create():
+        if not app.config["ENV_LOADED"]:
+            return jsonify({"ok": False, "error": "Variáveis de ambiente não carregadas."}), 400
+
+        uploaded = request.files.get("file")
+        if uploaded is None or not uploaded.filename:
+            return jsonify({"ok": False, "error": "Envie um arquivo no campo file."}), 422
+
+        try:
+            outcome = save_uploaded_attachment(
+                app.config["APP_CONFIG"],
+                uploaded.filename,
+                uploaded.read(),
+            )
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 422
+
+        return jsonify(outcome), 200
+
     @app.post("/api/send/once")
     def send_once():
         if not app.config["ENV_LOADED"]:
@@ -447,7 +544,8 @@ def create_app(
         targets_file = resolve_project_path(Path(data["targets"]))
 
         try:
-            outcome = asyncio.run(
+            config = app.config["APP_CONFIG"]
+            outcome = run_automation_coroutine(
                 execute_send_job(
                     Path(app.config["ENV_FILE"]),
                     targets_file,
@@ -455,15 +553,21 @@ def create_app(
                     target_ids=data["target_ids"],
                     allow_all=data["allow_all"],
                     confirm=data["confirm"],
-                )
+                    attachment=data["attachment"],
+                ),
+                timeout=automation_job_timeout(config, heavy=False),
             )
         except FileNotFoundError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 404
         except RuntimeError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
+        except TimeoutError:
+            return jsonify({"ok": False, "error": "Tempo esgotado ao executar envio."}), 504
 
         if outcome.get("busy"):
             return jsonify(outcome), 409
+        if outcome.get("requires_qr"):
+            return jsonify(outcome), 403
 
         status = 200 if outcome.get("ok") else 422
         if outcome.get("dry_run"):
@@ -525,6 +629,32 @@ def create_app(
 
         return jsonify(outcome), 200
 
+    @app.post("/api/groups/update")
+    def groups_update():
+        if not app.config["ENV_LOADED"]:
+            return jsonify({"ok": False, "error": "Variáveis de ambiente não carregadas."}), 400
+
+        payload = request.get_json(silent=True) or {}
+        if not isinstance(payload, dict):
+            payload = {}
+
+        updates = payload.get("updates") or payload.get("items") or []
+        if not isinstance(updates, list):
+            return jsonify({"ok": False, "error": "Campo updates deve ser uma lista."}), 422
+
+        targets_path = resolve_project_path(
+            Path(payload.get("targets_output") or payload.get("targets") or app.config["DEFAULT_GROUPS_TARGETS"])
+        )
+
+        try:
+            outcome = apply_group_updates(targets_path, updates)
+        except FileNotFoundError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 404
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 422
+
+        return jsonify(outcome), 200
+
     @app.get("/api/groups/last")
     def groups_last():
         inventory_path = resolve_project_path(
@@ -556,20 +686,26 @@ def create_app(
         merge_targets = Path(data["merge_targets"]) if data.get("merge_targets") else None
 
         try:
-            outcome = asyncio.run(
+            config = app.config["APP_CONFIG"]
+            outcome = run_automation_coroutine(
                 execute_list_groups_job(
                     Path(app.config["ENV_FILE"]),
                     output_path=output_path,
                     targets_output_path=targets_output,
                     merge_targets_path=merge_targets,
                     resolve_names=data.get("resolve_names") or [],
-                )
+                ),
+                timeout=automation_job_timeout(config, heavy=True),
             )
         except RuntimeError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
+        except TimeoutError:
+            return jsonify({"ok": False, "error": "Tempo esgotado ao gerar lista de grupos."}), 504
 
         if outcome.get("busy"):
             return jsonify(outcome), 409
+        if outcome.get("requires_qr"):
+            return jsonify(outcome), 403
 
         status = 200 if outcome.get("ok") else 422
         return jsonify(outcome), status
@@ -593,20 +729,26 @@ def create_app(
         )
 
         try:
-            outcome = asyncio.run(
+            config = app.config["APP_CONFIG"]
+            outcome = run_automation_coroutine(
                 execute_sync_contacts_job(
                     Path(app.config["ENV_FILE"]),
                     output_path=Path(data["output"]),
                     targets_path=Path(data["targets"]),
-                )
+                ),
+                timeout=automation_job_timeout(config, heavy=True),
             )
         except RuntimeError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 422
+        except TimeoutError:
+            return jsonify({"ok": False, "error": "Tempo esgotado ao sincronizar contatos."}), 504
 
         if outcome.get("busy"):
             return jsonify(outcome), 409
+        if outcome.get("requires_qr"):
+            return jsonify(outcome), 403
 
         status = 200 if outcome.get("ok") else 422
         return jsonify(outcome), status
@@ -632,7 +774,7 @@ def main() -> None:
     api_url = f"http://{host}:{port}/api?format=json"
 
     if open_browser:
-        threading.Timer(1.5, lambda: webbrowser.open(panel_url)).start()
+        threading.Timer(2.5, lambda: webbrowser.open(panel_url)).start()
 
     print("")
     print("=" * 56)

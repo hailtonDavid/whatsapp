@@ -1387,6 +1387,522 @@ async def send_text_to_current_chat(page: Page, message: str, *, clear_draft: bo
     }
 
 
+MEDIA_FILE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".mp4", ".mov", ".avi", ".mkv", ".webm"}
+
+
+def attachment_prefers_media_menu(path: Path) -> bool:
+    return path.suffix.lower() in MEDIA_FILE_EXTENSIONS
+
+
+async def _set_files_on_input(page: Page, file_path: Path) -> bool:
+    selectors = [
+        'footer input[type="file"]',
+        'input[type="file"][accept*="image"]',
+        'input[type="file"][accept*="*"]',
+        'input[type="file"]',
+    ]
+    for selector in selectors:
+        try:
+            locator = page.locator(selector)
+            count = await locator.count()
+            for index in range(count):
+                try:
+                    await locator.nth(index).set_input_files(str(file_path), timeout=4000)
+                    await page.wait_for_timeout(900)
+                    return True
+                except Exception:
+                    continue
+        except Exception:
+            continue
+    return False
+
+
+async def _click_first_visible(page: Page, selectors: tuple[str, ...] | list[str], *, timeout_ms: int = 2500) -> str | None:
+    for selector in selectors:
+        try:
+            locator = page.locator(selector)
+            count = await locator.count()
+            if count <= 0:
+                continue
+            target = locator.last if count > 1 else locator.first
+            await target.click(timeout=timeout_ms)
+            await page.wait_for_timeout(450)
+            return selector
+        except Exception:
+            continue
+    return None
+
+
+async def upload_file_to_current_chat(page: Page, file_path: Path) -> tuple[bool, str | None]:
+    from wa_selectors import (
+        WHATSAPP_ATTACH_BUTTON_SELECTORS,
+        WHATSAPP_ATTACH_DOCUMENT_SELECTORS,
+        WHATSAPP_ATTACH_MEDIA_SELECTORS,
+    )
+
+    menu_selectors = (
+        list(WHATSAPP_ATTACH_MEDIA_SELECTORS) + list(WHATSAPP_ATTACH_DOCUMENT_SELECTORS)
+        if attachment_prefers_media_menu(file_path)
+        else list(WHATSAPP_ATTACH_DOCUMENT_SELECTORS) + list(WHATSAPP_ATTACH_MEDIA_SELECTORS)
+    )
+
+    for attach_selector in WHATSAPP_ATTACH_BUTTON_SELECTORS:
+        try:
+            attach = page.locator(attach_selector)
+            if await attach.count() <= 0:
+                continue
+
+            attach_target = attach.last
+            try:
+                async with page.expect_file_chooser(timeout=7000) as fc_info:
+                    await attach_target.click(timeout=3000)
+                    await page.wait_for_timeout(350)
+                    clicked_menu = await _click_first_visible(page, menu_selectors)
+                    if not clicked_menu:
+                        if not await _set_files_on_input(page, file_path):
+                            raise RuntimeError("menu_not_found")
+                file_chooser = await fc_info.value
+                await file_chooser.set_files(str(file_path))
+                await page.wait_for_timeout(1200)
+                return True, f"file_chooser:{attach_selector}"
+            except Exception:
+                await attach_target.click(timeout=2500)
+                await page.wait_for_timeout(350)
+                if await _click_first_visible(page, menu_selectors):
+                    if await _set_files_on_input(page, file_path):
+                        return True, f"menu_input:{attach_selector}"
+                if await _set_files_on_input(page, file_path):
+                    return True, f"input_only:{attach_selector}"
+        except Exception:
+            continue
+
+    if await _set_files_on_input(page, file_path):
+        return True, "fallback_input"
+    return False, "Não encontrei o botão de anexar ou o seletor de arquivo do WhatsApp Web."
+
+
+FIND_ATTACHMENT_CAPTION_JS = r"""
+() => {
+    const visible = (el) => {
+        const r = el.getBoundingClientRect();
+        const s = window.getComputedStyle(el);
+        return r.width > 8 && r.height > 8 &&
+               s.display !== "none" && s.visibility !== "hidden" &&
+               r.bottom >= 0 && r.right >= 0 &&
+               r.top <= window.innerHeight && r.left <= window.innerWidth;
+    };
+
+    const selectors = [
+        "div[data-testid='media-caption-input-container'] div[contenteditable='true']",
+        "div[data-testid='media-caption-input']",
+        "[aria-label*='Adicionar legenda' i][contenteditable='true']",
+        "[aria-label*='Add a caption' i][contenteditable='true']",
+        "[aria-label*='legenda' i][contenteditable='true']",
+        "[aria-label*='caption' i][contenteditable='true']",
+        "div[role='dialog'] footer div[contenteditable='true']",
+        "div[role='dialog'] div[contenteditable='true'][data-tab]",
+    ];
+
+    for (const selector of selectors) {
+        const elements = Array.from(document.querySelectorAll(selector)).filter(visible);
+        if (!elements.length) continue;
+        const el = elements[elements.length - 1];
+        const r = el.getBoundingClientRect();
+        return { x: r.x, y: r.y, width: r.width, height: r.height, selector };
+    }
+
+    const footer = document.querySelector("footer");
+    const overlayEditables = Array.from(document.querySelectorAll("div[contenteditable='true']"))
+        .filter(visible)
+        .filter((el) => {
+            if (footer && footer.contains(el)) return false;
+            return !!el.closest(
+                "[role='dialog'], [data-testid='media-viewer'], [data-testid='media-caption-input-container']"
+            );
+        });
+    if (overlayEditables.length) {
+        const el = overlayEditables[overlayEditables.length - 1];
+        const r = el.getBoundingClientRect();
+        return { x: r.x, y: r.y, width: r.width, height: r.height, selector: "overlay-contenteditable" };
+    }
+    return null;
+}
+"""
+
+GET_ATTACHMENT_CAPTION_TEXT_JS = r"""
+() => {
+    const visible = (el) => {
+        const r = el.getBoundingClientRect();
+        const s = window.getComputedStyle(el);
+        return r.width > 8 && r.height > 8 && s.display !== "none" && s.visibility !== "hidden";
+    };
+
+    const selectors = [
+        "div[data-testid='media-caption-input-container'] div[contenteditable='true']",
+        "div[data-testid='media-caption-input']",
+        "[aria-label*='legenda' i][contenteditable='true']",
+        "[aria-label*='caption' i][contenteditable='true']",
+        "div[role='dialog'] footer div[contenteditable='true']",
+    ];
+    for (const selector of selectors) {
+        const elements = Array.from(document.querySelectorAll(selector)).filter(visible);
+        if (!elements.length) continue;
+        const el = elements[elements.length - 1];
+        return el.innerText || el.textContent || "";
+    }
+    return "";
+}
+"""
+
+WAIT_MEDIA_PREVIEW_JS = r"""
+() => {
+    const visible = (el) => {
+        const r = el.getBoundingClientRect();
+        const s = window.getComputedStyle(el);
+        return r.width > 0 && r.height > 0 && s.display !== "none" && s.visibility !== "hidden";
+    };
+
+    const hasSend = Array.from(document.querySelectorAll(
+        "[data-testid='send'], div[role='dialog'] span[data-icon='send'], span[data-testid='send']"
+    )).some(visible);
+    const hasPreview = Array.from(document.querySelectorAll(
+        "div[data-testid='media-caption-input-container'], div[data-testid='media-viewer'], " +
+        "canvas, video, img[src^='blob:'], img[src^='data:']"
+    )).some(visible);
+    const captionEl = document.querySelector(
+        "div[data-testid='media-caption-input-container'] div[contenteditable='true'], " +
+        "[aria-label*='legenda' i][contenteditable='true'], [aria-label*='caption' i][contenteditable='true']"
+    );
+    return {
+        ready: hasSend || hasPreview,
+        has_caption_box: !!(captionEl && visible(captionEl)),
+        has_send: hasSend,
+        has_preview: hasPreview,
+    };
+}
+"""
+
+SET_ATTACHMENT_CAPTION_JS = r"""
+(text) => {
+    const visible = (el) => {
+        const r = el.getBoundingClientRect();
+        const s = window.getComputedStyle(el);
+        return r.width > 8 && r.height > 8 && s.display !== "none" && s.visibility !== "hidden";
+    };
+
+    const selectors = [
+        "div[data-testid='media-caption-input-container'] div[contenteditable='true']",
+        "div[data-testid='media-caption-input']",
+        "[aria-label*='legenda' i][contenteditable='true']",
+        "[aria-label*='caption' i][contenteditable='true']",
+        "div[role='dialog'] footer div[contenteditable='true']",
+    ];
+
+    let el = null;
+    for (const selector of selectors) {
+        const elements = Array.from(document.querySelectorAll(selector)).filter(visible);
+        if (elements.length) {
+            el = elements[elements.length - 1];
+            break;
+        }
+    }
+    if (!el) return { ok: false, error: "caption_element_not_found" };
+
+    el.focus();
+    el.textContent = text;
+    el.innerText = text;
+    el.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    return { ok: true, text: el.innerText || el.textContent || "" };
+}
+"""
+
+
+async def wait_for_media_preview_ready(page: Page, *, timeout_ms: int = 20000) -> Dict[str, Any]:
+    deadline = time.monotonic() + (timeout_ms / 1000)
+    last_state: Dict[str, Any] = {}
+    while time.monotonic() < deadline:
+        try:
+            last_state = await page.evaluate(WAIT_MEDIA_PREVIEW_JS)
+            if last_state.get("ready"):
+                return {"ok": True, **last_state}
+        except Exception:
+            pass
+        await page.wait_for_timeout(400)
+    return {
+        "ok": False,
+        "error": "A pré-visualização do anexo não apareceu a tempo.",
+        **last_state,
+    }
+
+
+async def click_attachment_caption_box(page: Page) -> bool:
+    box = await page.evaluate(FIND_ATTACHMENT_CAPTION_JS)
+    if not box:
+        return False
+    await page.mouse.click(
+        box["x"] + max(12, box["width"] / 2),
+        box["y"] + max(12, box["height"] / 2),
+    )
+    await page.wait_for_timeout(350)
+    return True
+
+
+async def get_attachment_caption_text(page: Page) -> str:
+    try:
+        return str(await page.evaluate(GET_ATTACHMENT_CAPTION_TEXT_JS) or "")
+    except Exception:
+        return ""
+
+
+def caption_matches_expected(caption_text: str, expected: str) -> bool:
+    draft = normalize_for_compare(caption_text)
+    if not expected:
+        return True
+    return draft == expected or expected in draft
+
+
+async def fill_attachment_caption(page: Page, caption: str) -> Dict[str, Any]:
+    text = (caption or "").strip()
+    if not text:
+        return {"ok": True, "method": "no_caption", "verified": True}
+
+    expected = normalize_for_compare(text)
+    preview = await wait_for_media_preview_ready(page)
+    if not preview.get("ok"):
+        return {
+            "ok": False,
+            "verified": False,
+            "supports_caption": False,
+            "error": preview.get("error") or "Preview indisponível.",
+        }
+
+    supports_caption = bool(preview.get("has_caption_box"))
+
+    if await click_attachment_caption_box(page):
+        try:
+            await page.keyboard.press("Control+A")
+            await page.keyboard.press("Backspace")
+            await page.wait_for_timeout(120)
+            await page.keyboard.insert_text(text)
+            await page.wait_for_timeout(500)
+            draft = normalize_for_compare(await get_attachment_caption_text(page))
+            if caption_matches_expected(draft, expected):
+                return {
+                    "ok": True,
+                    "verified": True,
+                    "method": "caption.insert_text",
+                    "draft_text": draft,
+                    "supports_caption": True,
+                }
+        except Exception:
+            pass
+
+        try:
+            await click_attachment_caption_box(page)
+            await type_multiline_message(page, text)
+            await page.wait_for_timeout(500)
+            draft = normalize_for_compare(await get_attachment_caption_text(page))
+            if caption_matches_expected(draft, expected):
+                return {
+                    "ok": True,
+                    "verified": True,
+                    "method": "caption.type",
+                    "draft_text": draft,
+                    "supports_caption": True,
+                }
+        except Exception:
+            pass
+
+    try:
+        set_result = await page.evaluate(SET_ATTACHMENT_CAPTION_JS, text)
+        await page.wait_for_timeout(500)
+        draft = normalize_for_compare(await get_attachment_caption_text(page))
+        if set_result.get("ok") and caption_matches_expected(draft, expected):
+            return {
+                "ok": True,
+                "verified": True,
+                "method": "caption.js_set",
+                "draft_text": draft,
+                "supports_caption": True,
+            }
+    except Exception:
+        pass
+
+    caption_selectors = [
+        "div[data-testid='media-caption-input-container'] div[contenteditable='true']",
+        "div[role='dialog'] footer div[contenteditable='true']",
+        "[aria-label*='legenda' i][contenteditable='true']",
+        "[aria-label*='caption' i][contenteditable='true']",
+    ]
+    for selector in caption_selectors:
+        try:
+            locator = page.locator(selector).last
+            if await locator.count() <= 0:
+                continue
+            await locator.click(timeout=2500)
+            await locator.fill(text, timeout=4000)
+            await page.wait_for_timeout(500)
+            draft = normalize_for_compare(await get_attachment_caption_text(page))
+            if caption_matches_expected(draft, expected):
+                return {
+                    "ok": True,
+                    "verified": True,
+                    "method": f"caption.fill:{selector}",
+                    "draft_text": draft,
+                    "supports_caption": True,
+                }
+        except Exception:
+            continue
+
+    draft_after = normalize_for_compare(await get_attachment_caption_text(page))
+    return {
+        "ok": False,
+        "verified": False,
+        "supports_caption": supports_caption,
+        "error": "Não consegui confirmar a legenda na pré-visualização do anexo.",
+        "draft_text": draft_after,
+        "expected": expected,
+    }
+
+
+ATTACHMENT_SENT_JS = """
+() => {
+    const outs = Array.from(document.querySelectorAll("div.message-out"));
+    if (!outs.length) return { ok: false, reason: "no_outgoing" };
+    const last = outs[outs.length - 1];
+    const hasMedia = !!last.querySelector(
+        "img, video, audio, [data-icon='document'], [data-icon='audio'], [data-icon='ptt']"
+    );
+    const pending = !!last.querySelector(
+        "[data-icon='msg-time'], [data-icon='msg-clock'], [data-icon='media-time']"
+    );
+    return { ok: hasMedia && !pending, hasMedia, pending };
+}
+"""
+
+
+async def wait_for_attachment_sent(page: Page, *, timeout_ms: int = 35000) -> Dict[str, Any]:
+    deadline = time.monotonic() + (timeout_ms / 1000)
+    while time.monotonic() < deadline:
+        try:
+            state = await page.evaluate(ATTACHMENT_SENT_JS)
+            if state.get("ok"):
+                return {
+                    "ok": True,
+                    "verification": "outgoing_media_visible",
+                    "media_state": state,
+                }
+        except Exception:
+            pass
+        await page.wait_for_timeout(800)
+    return {
+        "ok": False,
+        "error": "O anexo não foi confirmado no chat após o envio.",
+        "verification": "attachment_not_verified",
+    }
+
+
+async def click_preview_send_button(page: Page) -> str | None:
+    preview_selectors = [
+        "[data-testid='send']",
+        "div[role='dialog'] span[data-icon='send']",
+        "div[role='dialog'] button[aria-label*='Enviar' i]",
+        "div[role='dialog'] button[aria-label*='Send' i]",
+        "span[data-testid='send']",
+    ]
+    for selector in preview_selectors:
+        try:
+            locator = page.locator(selector)
+            if await locator.count() <= 0:
+                continue
+            await locator.last.click(timeout=3500)
+            await page.wait_for_timeout(700)
+            return selector
+        except Exception:
+            continue
+    return None
+
+
+async def send_attachment_to_current_chat(
+    page: Page,
+    file_path: Path,
+    caption: str = "",
+) -> Dict[str, Any]:
+    if not file_path.is_file():
+        return {"ok": False, "error": f"Arquivo não encontrado: {file_path}"}
+
+    ready = await wait_for_chat_send_ready(page, timeout_ms=30000)
+    if not ready.get("ok"):
+        return {
+            "ok": False,
+            "error": ready.get("error") or "A conversa não está pronta para envio.",
+            "chat_state": ready.get("state"),
+        }
+
+    uploaded, upload_method = await upload_file_to_current_chat(page, file_path)
+    if not uploaded:
+        return {"ok": False, "error": upload_method or "Falha ao selecionar o arquivo para envio."}
+
+    caption_text = (caption or "").strip()
+    caption_result: Dict[str, Any] = {"ok": True, "verified": True, "method": "no_caption"}
+    caption_verified = not caption_text
+
+    if caption_text:
+        caption_result = await fill_attachment_caption(page, caption_text)
+        caption_verified = bool(caption_result.get("verified"))
+        if not caption_result.get("ok") and not caption_result.get("supports_caption", True):
+            print(
+                "Legenda indisponível neste tipo de anexo; "
+                "o texto será enviado em mensagem separada após o arquivo."
+            )
+        elif not caption_verified:
+            print(
+                "Aviso: legenda não confirmada na pré-visualização; "
+                "tentando enviar o anexo e depois a mensagem separada."
+            )
+
+    preview_send = await click_preview_send_button(page)
+    send_method = preview_send or await click_send_button_or_press_enter(page)
+    verified = await wait_for_attachment_sent(page)
+
+    if not verified.get("ok"):
+        verified.update({
+            "send_method": send_method,
+            "upload_method": upload_method,
+            "attachment_name": file_path.name,
+            "caption_result": caption_result,
+        })
+        return verified
+
+    result: Dict[str, Any] = {
+        "ok": True,
+        "verified": True,
+        "verification": verified.get("verification"),
+        "send_method": send_method,
+        "upload_method": upload_method,
+        "attachment_name": file_path.name,
+        "caption_chars": len(caption_text),
+        "caption_method": caption_result.get("method"),
+        "caption_verified": caption_verified,
+        "sent_at": now_iso(),
+    }
+
+    if caption_text and not caption_verified:
+        await page.wait_for_timeout(1800)
+        text_result = await send_text_to_current_chat(page, caption_text)
+        result["caption_fallback"] = "separate_text_message"
+        result["text_follow_up"] = text_result
+        if not text_result.get("ok"):
+            result["ok"] = False
+            result["error"] = (
+                "Anexo enviado, mas a mensagem de texto não foi confirmada: "
+                f"{text_result.get('error') or 'erro desconhecido'}"
+            )
+
+    return result
+
+
 READ_MESSAGES_JS = """
 () => {
     const normalize = (txt) => (txt || "")
@@ -1652,7 +2168,14 @@ def target_display_name(target: Target) -> str:
     return target.name or target.phone or target.id
 
 
-def build_send_record(target: Target, message: str, result: Dict[str, Any], *, dry_run: bool) -> Dict[str, Any]:
+def build_send_record(
+    target: Target,
+    message: str,
+    result: Dict[str, Any],
+    *,
+    dry_run: bool,
+    attachment: str | None = None,
+) -> Dict[str, Any]:
     return {
         "created_at": now_iso(),
         "target_id": target.id,
@@ -1661,6 +2184,8 @@ def build_send_record(target: Target, message: str, result: Dict[str, Any], *, d
         "target_phone": target.phone,
         "message": message,
         "message_chars": len(message or ""),
+        "attachment": attachment,
+        "attachment_name": Path(attachment).name if attachment else result.get("attachment_name"),
         "dry_run": dry_run,
         "ok": bool(result.get("ok")),
         "verified": bool(result.get("verified") or result.get("verification") in {"outgoing_message_visible", "outgoing_message_visible_and_not_pending"}),
@@ -2148,15 +2673,13 @@ async () => {
         }
     };
 
-    await scanCurrentFilter();
-    for (const labels of [["Grupos", "Groups"], ["Arquivadas", "Archived"]]) {
+    for (const labels of [["Grupos", "Groups"], ["Arquivadas", "Archived"], ["Todas", "All", "Todos"]]) {
         if (tryClickFilter(labels)) {
             await new Promise(r => setTimeout(r, 700));
             await scanCurrentFilter();
         }
     }
 
-    tryClickFilter(["Todas", "All", "Todos"]);
     return results;
 }
 """
@@ -2213,13 +2736,17 @@ async () => {
     const isGroupRow = (row) => {
         if (!row || typeof row !== "object") return false;
         const id = readRowId(row).toLowerCase();
+        if (id.includes("@g.us")) return true;
+        if (id.includes("@c.us") || id.includes("@s.whatsapp.net") || id.includes("@lid")) return false;
         return Boolean(
-            id.includes("@g.us") ||
-            row?.isGroup === true ||
-            row?.__x_isGroup === true ||
-            row?.groupMetadata ||
-            row?.__x_groupMetadata
+            (row?.isGroup === true || row?.__x_isGroup === true) &&
+            readRowName(row)
         );
+    };
+    const isChatStore = (storeName) => {
+        const lname = String(storeName || "").toLowerCase();
+        if (lname.includes("message") || lname.includes("range") || lname.includes("contact")) return false;
+        return lname.includes("chat") || lname.includes("group") || lname.includes("conversation");
     };
     const seen = new Set();
     const out = [];
@@ -2294,6 +2821,7 @@ async () => {
         try { db = await openDb(dbInfo.name); } catch { continue; }
         try {
             for (const storeName of Array.from(db.objectStoreNames || [])) {
+                if (!isChatStore(storeName)) continue;
                 let store;
                 try {
                     store = db.transaction(storeName, "readonly").objectStore(storeName);
@@ -2319,6 +2847,117 @@ def default_group_search_prefixes() -> List[str]:
 
 def _normalize_group_name(value: Optional[str]) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip().casefold()
+
+
+_GARBAGE_GROUP_NAME_PATTERNS = (
+    re.compile(r"mensagens?\s+n[aã]o\s+lidas", re.I),
+    re.compile(r"^\d+\s+mensagens", re.I),
+    re.compile(r"^type a message", re.I),
+    re.compile(r"^digite uma mensagem", re.I),
+    re.compile(r"^whatsapp$", re.I),
+    re.compile(r"^arquivadas?$", re.I),
+    re.compile(r"^grupos?$", re.I),
+)
+
+
+def is_plausible_group_name(name: Optional[str]) -> bool:
+    """Rejeita rótulos de UI/ruído da busca lateral."""
+    cleaned = re.sub(r"\s+", " ", str(name or "")).strip()
+    if len(cleaned) < 2 or len(cleaned) > 180:
+        return False
+    for pattern in _GARBAGE_GROUP_NAME_PATTERNS:
+        if pattern.search(cleaned):
+            return False
+    if cleaned.isdigit():
+        return False
+    return True
+
+
+def _group_source_rank(source: Optional[str]) -> int:
+    """Menor = melhor (preferir chat store / indexedDB sobre busca DOM)."""
+    label = str(source or "").lower()
+    if label.startswith("indexeddb:") and "/chat" in label:
+        return 0
+    if label.startswith("indexeddb:") and "@g.us" in label:
+        return 1
+    if label.startswith("store") or label.startswith("wpp:"):
+        return 2
+    if "indexeddb" in label:
+        return 3
+    if label.startswith("dom:"):
+        return 4
+    if label.startswith("search:discover"):
+        return 5
+    if label.startswith("search:prefix"):
+        return 9
+    return 6
+
+
+def finalize_group_inventory(groups: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Remove ruído, deduplica por id/nome e prefere entradas com whatsapp_id."""
+    merged: Dict[str, Dict[str, Any]] = {}
+
+    def pick_name(entry: Dict[str, Any], wid: str) -> str:
+        name = str(entry.get("name") or "").strip()
+        if is_plausible_group_name(name):
+            return name
+        if wid:
+            return wid.split("@")[0]
+        return name
+
+    def consider(entry: Dict[str, Any]) -> None:
+        name = str(entry.get("name") or "").strip()
+        wid = str(entry.get("whatsapp_id") or "").strip().lower()
+        if wid and not wid.endswith("@g.us"):
+            wid = ""
+        if not is_plausible_group_name(name) and not wid:
+            return
+
+        key = wid or f"name:{_normalize_group_name(name)}"
+        candidate = dict(entry)
+        candidate["name"] = pick_name(candidate, wid)
+
+        current = merged.get(key)
+        if current is None:
+            merged[key] = candidate
+            return
+
+        if _group_source_rank(str(candidate.get("source"))) < _group_source_rank(
+            str(current.get("source"))
+        ):
+            winner, loser = candidate, current
+        else:
+            winner, loser = current, candidate
+
+        if not winner.get("whatsapp_id") and loser.get("whatsapp_id"):
+            winner["whatsapp_id"] = loser.get("whatsapp_id")
+        loser_name = str(loser.get("name") or "")
+        if is_plausible_group_name(loser_name) and len(loser_name) > len(str(winner.get("name") or "")):
+            winner["name"] = loser_name
+        merged[key] = winner
+
+    for item in groups:
+        consider(item)
+
+    # Mescla entradas só com nome quando já existe grupo com o mesmo nome e @g.us.
+    for key, entry in list(merged.items()):
+        if str(key).startswith("name:"):
+            name_key = _normalize_group_name(str(entry.get("name") or ""))
+            for other_key, other in merged.items():
+                if other_key == key:
+                    continue
+                if _normalize_group_name(str(other.get("name") or "")) != name_key:
+                    continue
+                if other.get("whatsapp_id"):
+                    if not other.get("name") and is_plausible_group_name(entry.get("name")):
+                        other["name"] = entry.get("name")
+                    del merged[key]
+                    break
+
+    return sorted(
+        merged.values(),
+        key=lambda row: str(row.get("name") or row.get("whatsapp_id") or "").casefold(),
+    )
 
 
 def merge_group_entries(
@@ -2377,6 +3016,8 @@ async def supplement_groups_from_chat_list(page: Page) -> List[Dict[str, Any]]:
 
     for title in titles or []:
         name = str(title).strip()
+        if not is_plausible_group_name(name):
+            continue
         key = _normalize_group_name(name)
         if not key or key in collected:
             continue
@@ -2829,24 +3470,20 @@ async def extract_whatsapp_groups(
     supplement = await supplement_groups_from_chat_list(page)
     groups, scroll_added = merge_group_entries(groups, supplement)
 
-    existing_names = {_normalize_group_name(str(item.get("name") or "")) for item in groups}
-    prefix_supplement = await supplement_groups_by_search_prefixes(
-        page,
-        existing_names=existing_names,
-    )
-    groups, prefix_added = merge_group_entries(groups, prefix_supplement)
-
     search_discovered: List[Dict[str, Any]] = []
     for name in resolve_names or []:
         key = _normalize_group_name(name)
-        if not key or key in existing_names:
+        if not key:
+            continue
+        if any(_normalize_group_name(str(g.get("name") or "")) == key for g in groups):
             continue
         entry = await discover_group_by_search(page, name)
-        if entry:
+        if entry and is_plausible_group_name(entry.get("name")):
             search_discovered.append(entry)
-            existing_names.add(_normalize_group_name(str(entry.get("name") or "")))
 
     groups, search_added = merge_group_entries(groups, search_discovered)
+    before_finalize = len(groups)
+    groups = finalize_group_inventory(groups)
 
     raw_diag = result.get("diagnostics")
     diagnostics: dict[str, Any] = dict(raw_diag) if isinstance(raw_diag, dict) else {}
@@ -2854,10 +3491,9 @@ async def extract_whatsapp_groups(
     diagnostics["store_deep_scan_found"] = len(store_groups) if isinstance(store_groups, list) else 0
     diagnostics["scroll_supplement_added"] = scroll_added
     diagnostics["scroll_supplement_found"] = len(supplement)
-    diagnostics["search_prefix_added"] = prefix_added
-    diagnostics["search_prefix_found"] = len(prefix_supplement)
     diagnostics["search_discover_added"] = search_added
     diagnostics["search_discover_found"] = len(search_discovered)
+    diagnostics["finalize_dropped"] = max(0, before_finalize - len(groups))
     result["groups"] = groups
     result["diagnostics"] = diagnostics
     result["generated_at"] = now_iso()
@@ -2984,23 +3620,36 @@ async def process_send_target(
     message: str,
     *,
     dry_run: bool,
+    attachment_path: str | None = None,
 ) -> Dict[str, Any]:
     print("")
     print(f"=== Envio: {target.id} | tipo={target.type} | destino={target_display_name(target)} ===")
 
-    if not message.strip():
+    has_message = bool((message or "").strip())
+    has_attachment = bool(attachment_path)
+    if not has_message and not has_attachment:
         record = build_send_record(
             target,
             message,
-            {"ok": False, "error": "Mensagem vazia."},
+            {"ok": False, "error": "Informe uma mensagem ou anexo."},
             dry_run=dry_run,
+            attachment=attachment_path,
         )
         return record
 
     if dry_run:
-        print("Simulação ativada: a conversa não será aberta e a mensagem não será enviada.")
-        print(f"Mensagem: {message}")
-        return build_send_record(target, message, {"ok": True}, dry_run=True)
+        print("Simulação ativada: a conversa não será aberta e nada será enviado.")
+        if has_message:
+            print(f"Mensagem: {message}")
+        if has_attachment:
+            print(f"Anexo: {attachment_path}")
+        return build_send_record(
+            target,
+            message,
+            {"ok": True},
+            dry_run=True,
+            attachment=attachment_path,
+        )
 
     if page is None:
         return build_send_record(
@@ -3008,11 +3657,13 @@ async def process_send_target(
             message,
             {"ok": False, "error": "Página Playwright indisponível para envio real."},
             dry_run=False,
+            attachment=attachment_path,
         )
 
     open_error: Optional[str] = None
+    open_message = None if has_attachment else (message if has_message else None)
     if target.type == "phone":
-        opened, open_error = await open_chat_by_phone(page, target.phone or "", message=message)
+        opened, open_error = await open_chat_by_phone(page, target.phone or "", message=open_message)
     else:
         opened, open_error = await open_target(page, target)
     if not opened:
@@ -3021,6 +3672,7 @@ async def process_send_target(
             message,
             {"ok": False, "error": open_error or "Não foi possível abrir a conversa."},
             dry_run=False,
+            attachment=attachment_path,
         )
         try:
             fail_dir = app_config.export_dir / "send" / "debug"
@@ -3036,8 +3688,16 @@ async def process_send_target(
         return record
 
     await page.wait_for_timeout(1800)
-    result = await send_text_to_current_chat(page, message)
-    record = build_send_record(target, message, result, dry_run=False)
+    if has_attachment:
+        resolved = resolve_project_path(Path(attachment_path or ""))
+        result = await send_attachment_to_current_chat(
+            page,
+            resolved,
+            caption=message if has_message else "",
+        )
+    else:
+        result = await send_text_to_current_chat(page, message)
+    record = build_send_record(target, message, result, dry_run=False, attachment=attachment_path)
 
     if record["ok"]:
         print(f"Mensagem enviada, apareceu no chat e não está pendente para {target_display_name(target)}.")
@@ -3066,6 +3726,7 @@ async def run_send_once(
     message_override: Optional[str] = None,
     target_ids: Optional[List[str]] = None,
     dry_run: bool = True,
+    attachment_path: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     selected_ids = {safe_id(item) for item in (target_ids or []) if item}
     if selected_ids:
@@ -3077,15 +3738,19 @@ async def run_send_once(
     for target in selected_targets:
         if message_override is not None:
             send_targets.append((target, message_override))
+        elif attachment_path:
+            send_targets.append((target, target.message or ""))
         elif target.send_enabled and target.message:
             send_targets.append((target, target.message))
 
     print("")
     print(f"Envio iniciado às {now_iso()}. Alvos selecionados: {len(send_targets)}")
+    if attachment_path:
+        print(f"Anexo: {attachment_path}")
 
     if not send_targets:
         print("Nenhum alvo configurado para envio.")
-        print("Use --message ou configure send.enabled=true e send.message no targets.json.")
+        print("Use --message, anexo ou configure send.enabled=true e send.message no targets.json.")
         return []
 
     results: List[Dict[str, Any]] = []
@@ -3097,6 +3762,7 @@ async def run_send_once(
                 target=target,
                 message=message,
                 dry_run=dry_run,
+                attachment_path=attachment_path,
             )
             results.append(record)
             append_jsonl(app_config.export_dir / "send" / "sent_log.jsonl", [record])
@@ -3107,6 +3773,7 @@ async def run_send_once(
                 message,
                 {"ok": False, "error": f"{type(exc).__name__}: {exc}"},
                 dry_run=dry_run,
+                attachment=attachment_path,
             )
             results.append(record)
             append_jsonl(app_config.export_dir / "send" / "sent_log.jsonl", [record])

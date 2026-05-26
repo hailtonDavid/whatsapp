@@ -17,13 +17,9 @@ if errorlevel 1 (
 )
 
 call venv\Scripts\activate.bat
-set FLASK_OPEN_BROWSER=true
 set FLASK_PORT=5014
 
 echo Painel: http://127.0.0.1:5014/painel
 echo.
-
-REM Aguarda o servidor subir e abre o painel
-start "" cmd /c "timeout /t 3 /nobreak >nul && start http://127.0.0.1:5014/painel"
 
 python src\app.py

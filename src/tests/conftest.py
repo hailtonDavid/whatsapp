@@ -308,6 +308,10 @@ def mock_playwright_stack(monkeypatch: pytest.MonkeyPatch):
         mock_factory = MagicMock()
         mock_factory.start = AsyncMock(return_value=mock_playwright)
         monkeypatch.setattr("whatsapp_auto_downloader.async_playwright", lambda: mock_factory)
+        monkeypatch.setattr(
+            "automation_service.wait_for_stable_session_state",
+            AsyncMock(return_value="logged_in"),
+        )
 
         return mock_factory, mock_playwright, mock_context, mock_page
 
@@ -343,6 +347,10 @@ def mock_playwright_stack_with_cleanup_tracking(monkeypatch: pytest.MonkeyPatch)
         mock_factory = MagicMock()
         mock_factory.start = AsyncMock(return_value=mock_playwright)
         monkeypatch.setattr("whatsapp_auto_downloader.async_playwright", lambda: mock_factory)
+        monkeypatch.setattr(
+            "automation_service.wait_for_stable_session_state",
+            AsyncMock(return_value="logged_in"),
+        )
 
         return mock_factory, mock_playwright, mock_context, mock_page, cleanup
 

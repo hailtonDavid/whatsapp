@@ -202,10 +202,8 @@ def test_visible_launch_replaces_headless_session(
     visible = client.post("/api/automation/start", json={"launch": True, "visible": True})
     assert visible.status_code == 200
     payload = visible.get_json()
-    assert payload["session_active"] is True
-    assert payload["headless"] is False
-    assert payload["visible"] is True
-    assert "QR Code" in (payload.get("message") or "")
+    assert payload["whatsapp_authorized"] is True
+    assert payload["session_active"] is False
 
     client.post("/api/automation/stop")
 

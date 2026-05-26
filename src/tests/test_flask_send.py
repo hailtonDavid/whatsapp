@@ -77,3 +77,33 @@ def test_flask_send_last_empty(client) -> None:
     payload = response.get_json()
     assert "results" in payload
     assert "total" in payload
+
+
+def test_flask_uploads_and_send_attachment_dry_run(client, targets_file) -> None:
+    from io import BytesIO
+
+    upload = client.post(
+        "/api/uploads",
+        data={"file": (BytesIO(b"%PDF-test-content"), "relatorio.pdf")},
+        content_type="multipart/form-data",
+    )
+    assert upload.status_code == 200
+    upload_payload = upload.get_json()
+    assert upload_payload["ok"] is True
+    assert upload_payload["path"].endswith(".pdf")
+
+    response = client.post(
+        "/api/send/once",
+        json={
+            "targets": targets_file.as_posix(),
+            "target_ids": ["grupo_teste"],
+            "message": "Segue o arquivo",
+            "attachment": upload_payload["path"],
+            "confirm": False,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["dry_run"] is True
+    assert payload["results"][0]["attachment_name"] == upload_payload["filename"]

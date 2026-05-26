@@ -5,10 +5,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from automation_service import apply_phone_updates
+from automation_service import apply_group_updates, apply_phone_updates
 from whatsapp_auto_downloader import (
     _group_name_matches_wanted,
     default_group_search_prefixes,
+    finalize_group_inventory,
+    is_plausible_group_name,
     list_group_names_from_targets_file,
     merge_group_entries,
     merge_groups_into_targets,
@@ -47,6 +49,40 @@ def test_apply_phone_updates_changes_number_and_message(tmp_path: Path) -> None:
     assert phone["phone"] == "5511888888888"
     assert phone["enabled"] is True
     assert phone["send"]["message"] == "Oi"
+
+
+def test_apply_group_updates_changes_message_and_enabled(tmp_path: Path) -> None:
+    targets_path = tmp_path / "groups.json"
+    targets_path.write_text(
+        json.dumps(
+            {
+                "targets": [
+                    {
+                        "id": "grupo_teste",
+                        "type": "group",
+                        "name": "Grupo Teste",
+                        "enabled": False,
+                        "send": {"enabled": False, "message": ""},
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    outcome = apply_group_updates(
+        targets_path,
+        [{"id": "grupo_teste", "message": "Olá grupo", "enabled": True}],
+    )
+
+    assert outcome["ok"] is True
+    assert outcome["updated_count"] == 1
+    data = json.loads(targets_path.read_text(encoding="utf-8"))
+    group = data["targets"][0]
+    assert group["enabled"] is True
+    assert group["send"]["message"] == "Olá grupo"
+    assert group["send"]["enabled"] is True
 
 
 def test_merge_group_entries_adds_missing_name() -> None:
@@ -101,6 +137,44 @@ def test_default_group_search_prefixes_includes_letters_and_digits() -> None:
     assert "0" in tokens
     assert "9" in tokens
     assert len(tokens) == 36
+
+
+def test_is_plausible_group_name_rejects_ui_noise() -> None:
+    assert not is_plausible_group_name("2 mensagens não lidastal pai, tal filhas")
+    assert not is_plausible_group_name("Grupos")
+    assert is_plausible_group_name("Tal pai, tal filhas")
+
+
+def test_finalize_group_inventory_deduplicates_and_keeps_g_us_id() -> None:
+    merged = finalize_group_inventory(
+        [
+            {
+                "whatsapp_id": "120363123456789@g.us",
+                "name": "Grupo Real",
+                "source": "indexedDB:model-storage/chat",
+            },
+            {
+                "whatsapp_id": None,
+                "name": "Grupo Real",
+                "source": "search:prefix:t",
+            },
+            {
+                "whatsapp_id": None,
+                "name": "2 mensagens não lidastal pai, tal filhas",
+                "source": "search:prefix:t",
+            },
+            {
+                "whatsapp_id": None,
+                "name": "Tal pai, tal filhas",
+                "source": "dom:scroll-supplement",
+            },
+        ]
+    )
+    names = {item["name"] for item in merged}
+    assert "Tal pai, tal filhas" in names
+    assert "Grupo Real" in names
+    assert not any("mensagens não lidas" in n for n in names)
+    assert len(merged) == 2
 
 
 def test_list_group_names_from_targets_file(tmp_path: Path) -> None:

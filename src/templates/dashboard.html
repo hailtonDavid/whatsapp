@@ -3,10 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>WhatsApp Web Automation</title>
+  <title>WhatsApp Automation</title>
   <style>
     :root {
-      --bg: #111b21;
+      --bg: #0b141a;
+      --surface: #111b21;
       --panel: #1f2c34;
       --panel-2: #2a3942;
       --text: #e9edef;
@@ -16,19 +17,22 @@
       --danger: #ea4335;
       --warn: #f59e0b;
       --border: #3b4a54;
-      --radius: 12px;
+      --radius: 14px;
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
+      min-height: 100vh;
       font-family: "Segoe UI", system-ui, sans-serif;
       background: var(--bg);
       color: var(--text);
       line-height: 1.5;
+      display: flex;
+      flex-direction: column;
     }
     header {
-      padding: 1.25rem 1.5rem;
-      background: var(--panel);
+      padding: 1rem 1.25rem;
+      background: var(--surface);
       border-bottom: 1px solid var(--border);
       display: flex;
       flex-wrap: wrap;
@@ -36,60 +40,147 @@
       align-items: center;
       justify-content: space-between;
     }
-    header h1 {
-      margin: 0;
-      font-size: 1.25rem;
-      font-weight: 600;
-    }
-    header p { margin: 0.15rem 0 0; color: var(--muted); font-size: 0.9rem; }
-    .badges { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    header h1 { margin: 0; font-size: 1.15rem; font-weight: 600; }
+    header p { margin: 0.2rem 0 0; color: var(--muted); font-size: 0.85rem; }
+    .badges { display: flex; gap: 0.45rem; flex-wrap: wrap; }
     .badge {
-      padding: 0.35rem 0.75rem;
+      padding: 0.3rem 0.7rem;
       border-radius: 999px;
-      font-size: 0.8rem;
+      font-size: 0.78rem;
       background: var(--panel-2);
       border: 1px solid var(--border);
     }
     .badge.ok { color: var(--accent); border-color: rgba(37,211,102,.35); }
     .badge.warn { color: var(--warn); }
     .badge.err { color: var(--danger); }
-    main {
-      max-width: 1200px;
-      margin: 0 auto;
-      padding: 1.5rem;
-      display: grid;
-      gap: 1rem;
-      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    nav.tabs {
+      display: flex;
+      gap: 0.35rem;
+      padding: 0.65rem 1.25rem 0;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      overflow-x: auto;
     }
-    .card {
+    nav.tabs button {
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      padding: 0.65rem 1rem;
+      border-radius: 10px 10px 0 0;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+    nav.tabs button.active {
+      color: var(--text);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-bottom-color: var(--panel);
+      margin-bottom: -1px;
+    }
+    nav.tabs .tab-count {
+      display: inline-block;
+      min-width: 1.25rem;
+      padding: 0.05rem 0.4rem;
+      margin-left: 0.35rem;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      background: var(--accent);
+      color: #072816;
+      font-weight: 700;
+    }
+    .alert-banner {
+      margin: 0;
+      padding: 0.75rem 1.25rem;
+      background: rgba(245,158,11,.12);
+      border-bottom: 1px solid rgba(245,158,11,.35);
+      color: var(--text);
+      font-size: 0.88rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .alert-banner.hidden { display: none; }
+    .alert-banner.ok-banner {
+      background: rgba(37,211,102,.1);
+      border-bottom-color: rgba(37,211,102,.3);
+    }
+    .toast-root {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      z-index: 9999;
+      display: grid;
+      gap: 0.5rem;
+      max-width: min(360px, calc(100vw - 2rem));
+    }
+    .toast {
+      padding: 0.75rem 0.9rem;
+      border-radius: 10px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      box-shadow: 0 8px 24px rgba(0,0,0,.35);
+      font-size: 0.85rem;
+      animation: toast-in .2s ease;
+    }
+    .toast.ok { border-color: rgba(37,211,102,.45); }
+    .toast.err { border-color: rgba(234,67,53,.45); }
+    @keyframes toast-in {
+      from { opacity: 0; transform: translateY(-8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .workspace-wrap {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 0;
+      max-width: 1280px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 1rem 1.25rem 0;
+    }
+    @media (min-width: 960px) {
+      .workspace-wrap.has-composer {
+        grid-template-columns: 1fr 340px;
+        align-items: start;
+      }
+    }
+    .panel {
+      display: none;
       background: var(--panel);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       padding: 1rem 1.1rem;
     }
-    .card h2 {
-      margin: 0 0 0.75rem;
-      font-size: 1rem;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
+    .panel.active { display: block; }
+    .panel h2 { margin: 0 0 0.35rem; font-size: 1.05rem; }
+    .panel .lead { margin: 0 0 1rem; color: var(--muted); font-size: 0.88rem; }
+    .subhead {
+      margin: 1.25rem 0 0.5rem;
+      font-size: 0.82rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--muted);
     }
-    .card.full { grid-column: 1 / -1; }
-    label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 0.35rem; }
-    input[type=text], textarea, select {
+    label { display: block; font-size: 0.82rem; color: var(--muted); margin-bottom: 0.35rem; }
+    input[type=text], input[type=search], textarea, select {
       width: 100%;
       background: var(--panel-2);
       color: var(--text);
       border: 1px solid var(--border);
-      border-radius: 8px;
+      border-radius: 10px;
       padding: 0.6rem 0.75rem;
       font: inherit;
     }
-    textarea { min-height: 88px; resize: vertical; }
+    textarea { min-height: 96px; resize: vertical; }
     .row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem; }
-    button {
+    button.btn {
       border: none;
-      border-radius: 8px;
+      border-radius: 10px;
       padding: 0.55rem 0.9rem;
       font: inherit;
       cursor: pointer;
@@ -97,56 +188,60 @@
       color: var(--text);
       border: 1px solid var(--border);
     }
-    button:hover { filter: brightness(1.08); }
-    button.primary { background: var(--accent); color: #072816; border-color: transparent; font-weight: 600; }
-    button.primary:hover { background: var(--accent-dark); }
-    button.danger { background: rgba(234,67,53,.15); color: #ffb4ae; border-color: rgba(234,67,53,.35); }
-    button:disabled { opacity: 0.55; cursor: not-allowed; }
-    .targets-list {
-      max-height: 180px;
+    button.btn:hover { filter: brightness(1.08); }
+    button.btn.primary { background: var(--accent); color: #072816; border-color: transparent; font-weight: 600; }
+    button.btn.primary:hover { background: var(--accent-dark); }
+    button.btn.danger { background: rgba(234,67,53,.15); color: #ffb4ae; border-color: rgba(234,67,53,.35); }
+    button.btn:disabled { opacity: 0.55; cursor: not-allowed; }
+    .hint { font-size: 0.82rem; color: var(--muted); margin-top: 0.45rem; }
+    .checkbox-row { display: flex; align-items: center; gap: 0.45rem; margin: 0.55rem 0; font-size: 0.88rem; color: var(--text); }
+    .list-box {
+      max-height: 360px;
       overflow: auto;
       border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 0.5rem;
-      background: var(--panel-2);
-    }
-    .groups-list {
-      max-height: 280px;
-      overflow: auto;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 0.5rem;
+      border-radius: 10px;
+      padding: 0.45rem;
       background: var(--panel-2);
       margin-top: 0.35rem;
     }
-    .groups-toolbar {
+    .list-toolbar {
       display: flex;
       gap: 0.5rem;
       flex-wrap: wrap;
       align-items: center;
-      margin-top: 0.5rem;
+      margin-top: 0.65rem;
     }
-    .groups-toolbar input[type=search] { flex: 1; min-width: 160px; }
-    .groups-meta { font-size: 0.82rem; color: var(--muted); margin-top: 0.35rem; }
-    .target-item {
-      display: flex;
-      gap: 0.5rem;
-      align-items: flex-start;
-      padding: 0.35rem 0.25rem;
-      font-size: 0.9rem;
-    }
+    .list-toolbar input[type=search] { flex: 1; min-width: 180px; }
+    .list-meta { font-size: 0.82rem; color: var(--muted); margin-top: 0.35rem; }
+    .target-item { padding: 0.4rem 0.25rem; font-size: 0.88rem; }
     .target-item small { color: var(--muted); display: block; }
-    .phone-edit-row {
+    .phone-edit-row, .group-edit-row {
       display: grid;
-      grid-template-columns: auto 1fr 1fr;
       gap: 0.45rem;
       align-items: center;
       width: 100%;
     }
-    .phone-edit-row input[type="text"] {
+    .phone-edit-row {
+      grid-template-columns: auto 1fr 1fr;
+    }
+    .group-edit-row {
+      grid-template-columns: auto minmax(120px, 1fr) minmax(140px, 1.6fr);
+    }
+    .phone-edit-row input, .group-edit-row input {
       width: 100%;
       padding: 0.35rem 0.45rem;
       font-size: 0.85rem;
+      background: var(--panel);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .group-label { min-width: 0; }
+    .group-label strong {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .pager {
       display: flex;
@@ -156,152 +251,446 @@
       font-size: 0.85rem;
     }
     .pager button { padding: 0.35rem 0.65rem; }
-    .hint { font-size: 0.82rem; color: var(--muted); margin-top: 0.5rem; }
+    .composer {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem;
+      position: sticky;
+      top: 1rem;
+    }
+    .composer h3 { margin: 0 0 0.75rem; font-size: 0.95rem; }
+    .composer-context {
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin-bottom: 0.75rem;
+      padding: 0.55rem 0.65rem;
+      background: var(--panel-2);
+      border-radius: 8px;
+    }
+    .attachment-box {
+      margin-top: 0.65rem;
+      padding: 0.75rem;
+      border: 1px dashed var(--border);
+      border-radius: 10px;
+      background: var(--panel-2);
+      transition: border-color .15s, background .15s;
+    }
+    .attachment-box.dragover {
+      border-color: var(--accent);
+      background: rgba(37,211,102,.08);
+    }
+    .dropzone-hint {
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin: 0.35rem 0 0.55rem;
+    }
+    .attachment-box input[type=file] { width: 100%; font-size: 0.85rem; }
+    .attachment-meta {
+      display: flex;
+      gap: 0.5rem;
+      align-items: flex-start;
+      margin-top: 0.55rem;
+    }
+    .attachment-preview {
+      width: 56px;
+      height: 56px;
+      object-fit: cover;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .attachment-preview.hidden { display: none; }
+    .attachment-name {
+      flex: 1;
+      font-size: 0.82rem;
+      color: var(--accent);
+      word-break: break-all;
+    }
+    .attachment-name.empty { color: var(--muted); }
+    .log-bar {
+      margin: 1rem 1.25rem 1.25rem;
+      max-width: 1280px;
+      width: calc(100% - 2.5rem);
+      align-self: center;
+    }
+    .log-bar h2 {
+      margin: 0 0 0.5rem;
+      font-size: 0.92rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
     pre.output {
       margin: 0;
       padding: 0.85rem;
       background: #0b141a;
       border: 1px solid var(--border);
-      border-radius: 8px;
+      border-radius: 10px;
       overflow: auto;
-      max-height: 320px;
+      max-height: 260px;
       font-size: 0.78rem;
       white-space: pre-wrap;
       word-break: break-word;
     }
+    .result-cards {
+      display: grid;
+      gap: 0.45rem;
+      margin-bottom: 0.65rem;
+    }
+    .result-card {
+      padding: 0.55rem 0.65rem;
+      border-radius: 8px;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      font-size: 0.82rem;
+    }
+    .result-card.ok { border-color: rgba(37,211,102,.35); }
+    .result-card.fail { border-color: rgba(234,67,53,.35); }
+    .result-card strong { display: block; margin-bottom: 0.15rem; }
+    .char-count {
+      text-align: right;
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-top: 0.25rem;
+    }
+    @media (max-width: 959px) {
+      .composer {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 100;
+        border-radius: var(--radius) var(--radius) 0 0;
+        max-height: 55vh;
+        overflow: auto;
+        box-shadow: 0 -8px 32px rgba(0,0,0,.35);
+      }
+      .workspace-wrap.has-composer { padding-bottom: 280px; }
+      .log-bar { margin-bottom: 1rem; }
+    }
     .loading { color: var(--warn); font-size: 0.85rem; }
-    .checkbox-row { display: flex; align-items: center; gap: 0.4rem; margin: 0.5rem 0; font-size: 0.9rem; }
+    .steps {
+      display: grid;
+      gap: 0.35rem;
+      margin: 0 0 1rem;
+      padding: 0.65rem 0.75rem;
+      background: var(--panel-2);
+      border-radius: 10px;
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
   </style>
 </head>
 <body>
   <header>
     <div>
-      <h1>WhatsApp Web Automation</h1>
-      <p>Painel de controle — use os botões abaixo para automação, envio e grupos</p>
-      <p class="hint" style="margin-top:0.35rem">URL deste painel: <strong id="panel-url"></strong> · A API JSON fica em <strong>/api</strong></p>
+      <h1>WhatsApp Automation</h1>
+      <p>Painel em <strong id="panel-url"></strong></p>
     </div>
-    <div class="badges" id="status-badges">
-      <span class="badge">Carregando...</span>
-    </div>
+    <div class="badges" id="status-badges"><span class="badge">Carregando...</span></div>
   </header>
 
-  <main>
-    <section class="card">
-      <h2>Automação / Navegador</h2>
-      <p class="hint">Por padrão o Playwright roda em <strong>segundo plano</strong> (<code>WA_HEADLESS=true</code>). Use “Abrir visível” apenas para escanear QR Code na primeira vez.</p>
-      <div class="row">
-        <button type="button" id="btn-validate">Validar configuração</button>
-        <button type="button" class="primary" id="btn-launch">Iniciar sessão (segundo plano)</button>
-        <button type="button" id="btn-launch-visible">Abrir visível (QR Code)</button>
-        <button type="button" class="danger" id="btn-stop">Parar sessão</button>
-        <button type="button" id="btn-refresh-status">Atualizar status</button>
-      </div>
-    </section>
+  <div class="alert-banner hidden" id="alert-banner">
+    <span id="alert-text"></span>
+    <button type="button" class="btn primary" id="alert-action" hidden>Ação</button>
+  </div>
+  <div class="toast-root" id="toast-root"></div>
 
-    <section class="card">
-      <h2>Enviar mensagens</h2>
-      <label for="targets-file">Arquivo de alvos</label>
-      <input type="text" id="targets-file" value="config/targets.json">
-      <div class="row">
-        <button type="button" id="btn-load-targets">Carregar alvos</button>
+  <nav class="tabs" role="tablist">
+    <button type="button" class="active" data-tab="session" role="tab">Sessão</button>
+    <button type="button" data-tab="groups" role="tab">Grupos <span class="tab-count" id="tab-count-groups" hidden>0</span></button>
+    <button type="button" data-tab="phones" role="tab">Contatos <span class="tab-count" id="tab-count-phones" hidden>0</span></button>
+  </nav>
+
+  <div class="workspace-wrap" id="workspace-wrap">
+    <main>
+      <section id="panel-session" class="panel active" role="tabpanel">
+        <h2>Sessão WhatsApp</h2>
+        <p class="lead">O navegador roda em segundo plano por padrão. Abra visível apenas para escanear o QR Code.</p>
+        <div class="steps" id="session-steps">
+          <div>1. Clique em <strong>Iniciar</strong> ou <strong>Abrir visível (QR)</strong></div>
+          <div>2. Aguarde o badge <strong>WhatsApp OK</strong> no topo</div>
+          <div>3. Vá para a aba <strong>Grupos</strong> para enviar mensagens</div>
+        </div>
+        <div class="row">
+          <button type="button" class="btn" id="btn-validate">Validar configuração</button>
+          <button type="button" class="btn primary" id="btn-launch">Iniciar (2º plano)</button>
+          <button type="button" class="btn" id="btn-launch-visible">Abrir visível (QR)</button>
+          <button type="button" class="btn danger" id="btn-stop">Parar sessão</button>
+          <button type="button" class="btn" id="btn-refresh-status">Atualizar status</button>
+        </div>
+      </section>
+
+      <section id="panel-groups" class="panel" role="tabpanel" hidden>
+        <h2>Grupos</h2>
+        <p class="lead">Gere o inventário, selecione os grupos e use o painel de envio à direita.</p>
+        <div class="steps">
+          <div>1. Gerar ou carregar inventário</div>
+          <div>2. Marcar grupos na lista</div>
+          <div>3. Escrever mensagem / anexar arquivo e enviar</div>
+        </div>
+        <label class="checkbox-row">
+          <input type="checkbox" id="groups-merge-config" checked> Mesclar grupos em config/targets.json
+        </label>
+        <label for="groups-targets-file">Arquivo de grupos</label>
+        <input type="text" id="groups-targets-file" value="exports/groups/groups_targets_template.json">
+        <div class="row">
+          <button type="button" class="btn primary" id="btn-generate-groups">Gerar inventário</button>
+          <button type="button" class="btn" id="btn-load-groups">Carregar lista</button>
+          <button type="button" class="btn" id="btn-last-groups">Ver inventário salvo</button>
+        </div>
+        <div class="subhead">Seleção</div>
+        <div class="list-toolbar">
+          <input type="search" id="groups-search" placeholder="Filtrar grupos..." disabled>
+          <label class="checkbox-row" style="margin:0">
+            <input type="checkbox" id="groups-select-all" disabled> Todos visíveis
+          </label>
+        </div>
+        <div class="list-meta" id="groups-meta">Nenhum grupo carregado.</div>
+        <div class="list-meta" id="groups-send-summary"></div>
+        <div class="pager" id="groups-pager" hidden>
+          <button type="button" class="btn" id="groups-prev">Anterior</button>
+          <span id="groups-page-label">Página 1</span>
+          <button type="button" class="btn" id="groups-next">Próxima</button>
+        </div>
+        <div class="list-box" id="groups-list">
+          <span class="hint">Carregue ou gere o inventário de grupos.</span>
+        </div>
+        <div class="row">
+          <button type="button" class="btn primary" id="btn-save-groups" disabled>Salvar seleção</button>
+          <button type="button" class="btn" id="btn-save-group-edits" disabled>Salvar mensagens</button>
+        </div>
+      </section>
+
+      <section id="panel-phones" class="panel" role="tabpanel" hidden>
+        <h2>Contatos / Números</h2>
+        <p class="lead">Sincronize contatos do WhatsApp ou edite números manualmente.</p>
+        <label for="phones-targets-file">Arquivo de alvos</label>
+        <input type="text" id="phones-targets-file" value="config/targets.json">
+        <div class="row">
+          <button type="button" class="btn primary" id="btn-sync-contacts">Sincronizar do WhatsApp</button>
+          <button type="button" class="btn" id="btn-load-phones">Carregar números</button>
+          <button type="button" class="btn" id="btn-last-contacts">Ver inventário</button>
+        </div>
+        <div class="subhead">Seleção</div>
+        <div class="list-toolbar">
+          <input type="search" id="phones-search" placeholder="Filtrar números..." disabled>
+          <label class="checkbox-row" style="margin:0">
+            <input type="checkbox" id="phones-select-all" disabled> Todos visíveis
+          </label>
+        </div>
+        <div class="list-meta" id="phones-meta">Nenhum número carregado.</div>
+        <div class="list-meta" id="phones-send-summary"></div>
+        <div class="pager" id="phones-pager" hidden>
+          <button type="button" class="btn" id="phones-prev">Anterior</button>
+          <span id="phones-page-label">Página 1</span>
+          <button type="button" class="btn" id="phones-next">Próxima</button>
+        </div>
+        <div class="list-box" id="phones-list">
+          <span class="hint">Carregue ou sincronize os números.</span>
+        </div>
+        <div class="row">
+          <button type="button" class="btn primary" id="btn-save-phones" disabled>Salvar seleção</button>
+          <button type="button" class="btn" id="btn-save-phone-edits" disabled>Salvar edições</button>
+        </div>
+      </section>
+    </main>
+
+    <aside class="composer" id="composer" hidden>
+      <h3>Enviar mensagem</h3>
+      <div class="composer-context" id="composer-context">Selecione destinatários na aba Grupos ou Contatos.</div>
+      <label for="composer-message">Mensagem</label>
+      <textarea id="composer-message" placeholder="Texto da mensagem ou legenda do anexo..."></textarea>
+      <div class="char-count"><span id="composer-char-count">0</span> caracteres</div>
+      <div class="attachment-box" id="attachment-dropzone">
+        <label for="composer-attachment">Anexo (opcional)</label>
+        <p class="dropzone-hint">Arraste um arquivo aqui ou clique para escolher</p>
+        <input type="file" id="composer-attachment" accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar">
+        <div class="attachment-meta">
+          <img class="attachment-preview hidden" id="attachment-preview" alt="">
+          <div class="attachment-name empty" id="composer-attachment-name">Nenhum anexo selecionado</div>
+        </div>
+        <div class="row" style="margin-top:0.5rem">
+          <button type="button" class="btn" id="btn-clear-attachment" hidden>Remover anexo</button>
+        </div>
+        <p class="hint">Imagens, vídeos, PDF e documentos até 64 MB.</p>
       </div>
-      <label style="margin-top:0.75rem">Alvos habilitados</label>
-      <div class="targets-list" id="targets-list">
-        <span class="hint">Clique em "Carregar alvos".</span>
-      </div>
-      <label for="message" style="margin-top:0.75rem">Mensagem (opcional — sobrescreve a do JSON)</label>
-      <textarea id="message" placeholder="Deixe vazio para usar a mensagem configurada em cada alvo."></textarea>
       <label class="checkbox-row">
-        <input type="checkbox" id="confirm-send"> Enviar de verdade (desmarcado = simulação)
+        <input type="checkbox" id="composer-confirm"> Envio real (desmarcado = simulação)
       </label>
       <div class="row">
-        <button type="button" class="primary" id="btn-send">Executar envio</button>
-        <button type="button" id="btn-last-send">Ver último envio</button>
+        <button type="button" class="btn" id="btn-composer-simulate">Simular</button>
+        <button type="button" class="btn primary" id="btn-composer-send">Enviar</button>
+        <button type="button" class="btn" id="btn-composer-last">Último envio</button>
       </div>
-    </section>
+    </aside>
+  </div>
 
-    <section class="card">
-      <h2>Números cadastrados</h2>
-      <p class="hint">Lista números do <code>targets.json</code> — selecione e envie mensagem individual para cada um.</p>
-      <p class="hint">Use <strong>Sincronizar números do WhatsApp</strong> para importar todos os contatos da sessão e atualizar o <code>targets.json</code>.</p>
-      <label for="phones-targets-file">Arquivo de alvos (números)</label>
-      <input type="text" id="phones-targets-file" value="config/targets.json">
-      <div class="row">
-        <button type="button" class="primary" id="btn-sync-contacts">Sincronizar números do WhatsApp</button>
-        <button type="button" id="btn-last-contacts">Ver inventário salvo</button>
-        <button type="button" id="btn-load-phones">Carregar números</button>
-      </div>
-      <div class="groups-toolbar">
-        <input type="search" id="phones-search" placeholder="Filtrar por número ou id..." disabled>
-        <label class="checkbox-row" style="margin:0">
-          <input type="checkbox" id="phones-select-all" disabled> Todos visíveis
-        </label>
-      </div>
-      <div class="groups-meta" id="phones-meta">Nenhum número carregado.</div>
-      <div class="pager" id="phones-pager" hidden>
-        <button type="button" id="phones-prev">Anterior</button>
-        <span id="phones-page-label">Página 1</span>
-        <button type="button" id="phones-next">Próxima</button>
-      </div>
-      <div class="groups-list" id="phones-list">
-        <span class="hint">Clique em “Carregar números”.</span>
-      </div>
-      <div class="row">
-        <button type="button" class="primary" id="btn-save-phones" disabled>Salvar seleção</button>
-        <button type="button" id="btn-save-phone-edits" disabled>Salvar números editados</button>
-        <button type="button" id="btn-send-phones" disabled>Enviar para selecionados</button>
-      </div>
-    </section>
-
-    <section class="card">
-      <h2>Inventário de grupos</h2>
-      <p class="hint">Gera a lista a partir do WhatsApp Web e mescla em <code>config/targets.json</code>.</p>
-      <label class="checkbox-row">
-        <input type="checkbox" id="groups-merge-config" checked> Mesclar grupos no config/targets.json
-      </label>
-      <label for="groups-extra-names">Grupos extras para localizar (um por linha)</label>
-      <textarea id="groups-extra-names" placeholder="Opcional: nomes exatos que faltaram no inventário (um por linha)" style="min-height:56px"></textarea>
-      <label for="groups-targets-file">Arquivo de grupos (targets)</label>
-      <input type="text" id="groups-targets-file" value="exports/groups/groups_targets_template.json">
-      <div class="row">
-        <button type="button" class="primary" id="btn-generate-groups">Gerar lista de grupos</button>
-        <button type="button" id="btn-load-groups">Carregar grupos</button>
-        <button type="button" id="btn-last-groups">Ver inventário salvo</button>
-      </div>
-      <div class="groups-toolbar">
-        <input type="search" id="groups-search" placeholder="Filtrar por nome do grupo..." disabled>
-        <label class="checkbox-row" style="margin:0">
-          <input type="checkbox" id="groups-select-all" disabled> Todos visíveis
-        </label>
-      </div>
-      <div class="groups-meta" id="groups-meta">Nenhum grupo carregado.</div>
-      <div class="pager" id="groups-pager" hidden>
-        <button type="button" id="groups-prev">Anterior</button>
-        <span id="groups-page-label">Página 1</span>
-        <button type="button" id="groups-next">Próxima</button>
-      </div>
-      <div class="groups-list" id="groups-list">
-        <span class="hint">Clique em “Gerar lista” ou “Carregar grupos”.</span>
-      </div>
-      <div class="row">
-        <button type="button" class="primary" id="btn-save-groups" disabled>Salvar seleção</button>
-        <button type="button" id="btn-send-groups" disabled>Enviar para selecionados</button>
-      </div>
-    </section>
-
-    <section class="card full">
-      <h2>Resultado <span class="loading" id="loading" hidden>Processando...</span></h2>
-      <pre class="output" id="output">Aguardando ação...</pre>
-    </section>
-  </main>
+  <section class="log-bar">
+    <h2>Resultado <span class="loading" id="loading" hidden>Processando...</span></h2>
+    <div class="result-cards" id="result-cards" hidden></div>
+    <pre class="output" id="output">Aguardando ação...</pre>
+  </section>
 
   <script>
     const output = document.getElementById("output");
     const loading = document.getElementById("loading");
     const badges = document.getElementById("status-badges");
+    const workspaceWrap = document.getElementById("workspace-wrap");
+    const composer = document.getElementById("composer");
+    let activeTab = "session";
+    let pendingAttachmentPath = null;
+    let pendingAttachmentLabel = "";
+    let pendingAttachmentPreviewUrl = null;
+    let lastStatus = null;
+
+    function toast(message, kind = "ok") {
+      const root = document.getElementById("toast-root");
+      const el = document.createElement("div");
+      el.className = `toast ${kind}`;
+      el.textContent = message;
+      root.appendChild(el);
+      setTimeout(() => el.remove(), 4500);
+    }
+
+    function humanError(body) {
+      if (!body) return "Erro desconhecido";
+      if (typeof body === "string") return body;
+      if (body.error) {
+        if (typeof body.error === "string") return body.error;
+        if (body.error.error) return String(body.error.error);
+        return JSON.stringify(body.error);
+      }
+      return JSON.stringify(body);
+    }
+
+    function formatResultCards(body) {
+      const wrap = document.getElementById("result-cards");
+      wrap.innerHTML = "";
+      if (!body || typeof body !== "object") {
+        wrap.hidden = true;
+        return;
+      }
+      if (Array.isArray(body.results) && body.results.length) {
+        wrap.hidden = false;
+        for (const item of body.results) {
+          const card = document.createElement("div");
+          card.className = `result-card ${item.ok ? "ok" : "fail"}`;
+          const name = item.target_name || item.target_id || "Alvo";
+          const extra = item.attachment_name ? ` · 📎 ${item.attachment_name}` : "";
+          card.innerHTML = `<strong>${escapeHtml(name)}${extra}</strong>${item.ok ? "Enviado com sucesso" : escapeHtml(item.error || "Falhou")}${item.dry_run ? " (simulação)" : ""}`;
+          wrap.appendChild(card);
+        }
+        return;
+      }
+      if (body.ok === true && body.message) {
+        wrap.hidden = false;
+        const card = document.createElement("div");
+        card.className = "result-card ok";
+        card.innerHTML = `<strong>OK</strong>${escapeHtml(body.message)}`;
+        wrap.appendChild(card);
+        return;
+      }
+      wrap.hidden = true;
+    }
 
     function show(data) {
+      formatResultCards(typeof data === "object" ? data : null);
       output.textContent = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+    }
+
+    function updateTabCounts() {
+      const gn = selectedGroupIds().length;
+      const pn = selectedPhoneIds().length;
+      const gEl = document.getElementById("tab-count-groups");
+      const pEl = document.getElementById("tab-count-phones");
+      gEl.textContent = String(gn);
+      pEl.textContent = String(pn);
+      gEl.hidden = gn <= 0;
+      pEl.hidden = pn <= 0;
+    }
+
+    function updateAlertBanner(status) {
+      lastStatus = status;
+      const banner = document.getElementById("alert-banner");
+      const text = document.getElementById("alert-text");
+      const action = document.getElementById("alert-action");
+      action.hidden = true;
+      action.onclick = null;
+      if (!status?.env_loaded) {
+        banner.classList.remove("hidden", "ok-banner");
+        text.textContent = "Arquivo .env não carregado. Configure o ambiente antes de usar.";
+        return;
+      }
+      if (status.requires_qr || status.whatsapp_authorized === false) {
+        banner.classList.remove("hidden", "ok-banner");
+        text.textContent = "WhatsApp não autorizado. Abra visível e escaneie o QR Code no celular.";
+        action.hidden = false;
+        action.textContent = "Abrir QR Code";
+        action.onclick = () => api("/api/automation/start", { method: "POST", body: JSON.stringify({ launch: true, visible: true }) });
+        return;
+      }
+      if (status.whatsapp_authorized === true) {
+        banner.classList.add("ok-banner");
+        banner.classList.remove("hidden");
+        text.textContent = "WhatsApp conectado. Vá para Grupos ou Contatos para enviar mensagens e anexos.";
+        return;
+      }
+      banner.classList.add("hidden");
+    }
+
+    function clearAttachment() {
+      pendingAttachmentPath = null;
+      pendingAttachmentLabel = "";
+      if (pendingAttachmentPreviewUrl) {
+        URL.revokeObjectURL(pendingAttachmentPreviewUrl);
+        pendingAttachmentPreviewUrl = null;
+      }
+      document.getElementById("composer-attachment").value = "";
+      document.getElementById("composer-attachment-name").textContent = "Nenhum anexo selecionado";
+      document.getElementById("composer-attachment-name").classList.add("empty");
+      document.getElementById("attachment-preview").classList.add("hidden");
+      document.getElementById("btn-clear-attachment").hidden = true;
+    }
+
+    function setAttachmentUi(file, uploadedPath) {
+      const nameEl = document.getElementById("composer-attachment-name");
+      const preview = document.getElementById("attachment-preview");
+      nameEl.classList.remove("empty");
+      nameEl.textContent = uploadedPath
+        ? `Pronto: ${pendingAttachmentLabel}`
+        : `Selecionado: ${file.name} (${Math.round(file.size / 1024)} KB)`;
+      document.getElementById("btn-clear-attachment").hidden = false;
+      if (pendingAttachmentPreviewUrl) {
+        URL.revokeObjectURL(pendingAttachmentPreviewUrl);
+        pendingAttachmentPreviewUrl = null;
+      }
+      if (file.type.startsWith("image/")) {
+        pendingAttachmentPreviewUrl = URL.createObjectURL(file);
+        preview.src = pendingAttachmentPreviewUrl;
+        preview.classList.remove("hidden");
+      } else {
+        preview.classList.add("hidden");
+      }
+    }
+
+    async function handleAttachmentFile(file) {
+      if (!file) return null;
+      if (file.size > 64 * 1024 * 1024) {
+        toast("Arquivo maior que 64 MB.", "err");
+        return null;
+      }
+      setAttachmentUi(file, false);
+      document.getElementById("composer-attachment-name").textContent = `Enviando ${file.name}...`;
+      const path = await uploadAttachment(file);
+      if (path) {
+        toast(`Anexo carregado: ${pendingAttachmentLabel}`);
+        setAttachmentUi(file, true);
+      } else {
+        clearAttachment();
+      }
+      return path;
     }
 
     async function api(path, options = {}) {
@@ -315,430 +704,437 @@
         let body;
         try { body = JSON.parse(text); } catch { body = text; }
         if (!res.ok) {
+          const msg = humanError(body);
           show({ status: res.status, error: body });
+          toast(msg, "err");
           return { ok: false, status: res.status, body };
         }
         show(body);
+        if (body?.ok !== false) {
+          if (body?.dry_run) toast(`Simulação: ${body.successes ?? 0}/${body.total ?? 0} ok`);
+          else if (body?.successes != null) toast(`Envio: ${body.successes}/${body.total} ok`);
+          else if (body?.message) toast(body.message);
+          else toast("Concluído");
+        }
         return { ok: true, status: res.status, body };
       } catch (err) {
         show({ error: String(err) });
+        toast(String(err), "err");
         return { ok: false, error: err };
       } finally {
         loading.hidden = true;
-        refreshStatus();
+        refreshStatus({ skipAuthCheck: true });
       }
+    }
+
+    async function uploadAttachment(file) {
+      if (!file) return null;
+      loading.hidden = false;
+      try {
+        const form = new FormData();
+        form.append("file", file);
+        const res = await fetch("/api/uploads", { method: "POST", body: form });
+        const body = await res.json();
+        if (!res.ok) {
+          toast(humanError(body), "err");
+          return null;
+        }
+        pendingAttachmentPath = body.path;
+        pendingAttachmentLabel = body.filename || file.name;
+        return body.path;
+      } catch (err) {
+        toast(String(err), "err");
+        return null;
+      } finally {
+        loading.hidden = true;
+      }
+    }
+
+    function switchTab(tab) {
+      activeTab = tab;
+      document.querySelectorAll("nav.tabs button").forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.tab === tab);
+      });
+      document.querySelectorAll(".panel").forEach(panel => {
+        const isActive = panel.id === `panel-${tab}`;
+        panel.classList.toggle("active", isActive);
+        panel.hidden = !isActive;
+      });
+      const showComposer = tab === "groups" || tab === "phones";
+      composer.hidden = !showComposer;
+      workspaceWrap.classList.toggle("has-composer", showComposer);
+      updateComposerContext();
+      updateTabCounts();
+    }
+
+    function updateComposerContext() {
+      const el = document.getElementById("composer-context");
+      if (activeTab === "groups") {
+        const n = selectedGroupIds().length;
+        el.textContent = n
+          ? `${n} grupo(s) selecionado(s) · arquivo: ${groupsTargetsFile()}`
+          : "Marque grupos na lista para enviar.";
+      } else if (activeTab === "phones") {
+        const n = selectedPhoneIds().length;
+        el.textContent = n
+          ? `${n} contato(s) selecionado(s) · arquivo: ${phonesTargetsFile()}`
+          : "Marque contatos na lista para enviar.";
+      } else {
+        el.textContent = "Disponível nas abas Grupos e Contatos.";
+      }
+    }
+
+    function updatePhonesSendSummary() {
+      syncPhoneEditsFromDom();
+      const selected = selectedPhoneIds();
+      const el = document.getElementById("phones-send-summary");
+      if (!loadedPhones.length) { el.textContent = ""; return; }
+      el.textContent = selected.length
+        ? `${selected.length} selecionado(s) para envio`
+        : "Nenhum contato selecionado";
+      updateComposerContext();
+      updateTabCounts();
     }
 
     function renderBadges(status) {
       const env = status.env_loaded ? "ok" : "err";
-      const envLabel = status.env_loaded ? "Env OK" : "Env ausente";
       const auto = status.automation_status || "unknown";
-      const autoClass = auto === "running" ? "ok" : auto === "ready" ? "ok" : "warn";
-      const headlessLabel = status.headless ? "Headless (2º plano)" : "Visível";
+      const autoClass = auto === "running" || auto === "ready" ? "ok" : "warn";
+      let authBadge = "";
+      if (status.whatsapp_authorized === true) authBadge = '<span class="badge ok">WhatsApp OK</span>';
+      else if (status.requires_qr) authBadge = '<span class="badge warn">QR necessário</span>';
       badges.innerHTML = `
-        <span class="badge ${env}">${envLabel}</span>
-        <span class="badge ${autoClass}">Automação: ${auto}</span>
-        <span class="badge">${status.session_active ? "Sessão ativa" : "Sessão parada"}</span>
-        <span class="badge">${headlessLabel}</span>
-        <span class="badge">${status.profile_dir || "-"}</span>
-      `;
+        <span class="badge ${env}">${status.env_loaded ? "Env OK" : "Sem .env"}</span>
+        <span class="badge ${autoClass}">${auto}</span>
+        <span class="badge">${status.session_active ? "Sessão ativa" : "Parada"}</span>
+        ${authBadge}
+        <span class="badge">${status.headless ? "2º plano" : "Visível"}</span>`;
+      updateAlertBanner(status);
     }
 
-    async function refreshStatus() {
+    let authCheckAttempted = false;
+
+    async function refreshStatus(options = {}) {
       try {
         const res = await fetch("/api/automation/status");
         const status = await res.json();
         renderBadges(status);
+        if (!options.skipAuthCheck && !authCheckAttempted && status.env_loaded && status.whatsapp_authorized !== true) {
+          authCheckAttempted = true;
+          try {
+            await fetch("/api/automation/ensure-auth", { method: "POST" });
+            const next = await (await fetch("/api/automation/status")).json();
+            renderBadges(next);
+            if (next.whatsapp_authorized === true) {
+              switchTab("groups");
+              await loadGroupsList();
+            }
+          } catch { /* ignore */ }
+        }
       } catch {
         badges.innerHTML = '<span class="badge err">Sem conexão</span>';
       }
     }
 
-    function selectedTargetIds() {
-      return [...document.querySelectorAll(".target-checkbox:checked")].map(el => el.value);
-    }
-
-    function selectedGroupIds() {
-      return [...document.querySelectorAll(".group-checkbox:checked")].map(el => el.value);
-    }
-
-    function selectedPhoneIds() {
-      syncPhoneEditsFromDom();
-      return Object.entries(phoneEdits)
-        .filter(([, edit]) => edit.enabled)
-        .map(([id]) => id);
-    }
-
-    let loadedGroups = [];
-    let loadedPhones = [];
-    let phoneEdits = {};
-    let phonesPage = 0;
-    let groupsPage = 0;
+    let loadedGroups = [], loadedPhones = [];
+    let phoneEdits = {}, groupEdits = {};
+    let phonesPage = 0, groupsPage = 0;
     const PAGE_SIZE = 60;
 
-    function escapeHtml(value) {
-      return String(value ?? "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/"/g, "&quot;");
+    function escapeHtml(v) {
+      return String(v ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+    }
+
+    function groupsTargetsFile() {
+      return document.getElementById("groups-targets-file").value.trim();
+    }
+    function phonesTargetsFile() {
+      return document.getElementById("phones-targets-file").value.trim();
     }
 
     function syncPhoneEditsFromDom() {
       document.querySelectorAll(".phone-edit-number").forEach(el => {
-        const id = el.dataset.id;
-        if (!id) return;
-        phoneEdits[id] = phoneEdits[id] || {};
-        phoneEdits[id].phone = el.value.trim();
+        if (!el.dataset.id) return;
+        phoneEdits[el.dataset.id] = phoneEdits[el.dataset.id] || {};
+        phoneEdits[el.dataset.id].phone = el.value.trim();
       });
       document.querySelectorAll(".phone-edit-message").forEach(el => {
-        const id = el.dataset.id;
-        if (!id) return;
-        phoneEdits[id] = phoneEdits[id] || {};
-        phoneEdits[id].message = el.value.trim();
+        if (!el.dataset.id) return;
+        phoneEdits[el.dataset.id] = phoneEdits[el.dataset.id] || {};
+        phoneEdits[el.dataset.id].message = el.value.trim();
       });
       document.querySelectorAll(".phone-checkbox").forEach(el => {
-        const id = el.value;
-        if (!id) return;
-        phoneEdits[id] = phoneEdits[id] || {};
-        phoneEdits[id].enabled = el.checked;
+        phoneEdits[el.value] = phoneEdits[el.value] || {};
+        phoneEdits[el.value].enabled = el.checked;
+      });
+    }
+
+    function syncGroupEditsFromDom() {
+      document.querySelectorAll(".group-edit-message").forEach(el => {
+        if (!el.dataset.id) return;
+        groupEdits[el.dataset.id] = groupEdits[el.dataset.id] || {};
+        groupEdits[el.dataset.id].message = el.value.trim();
+      });
+      document.querySelectorAll(".group-checkbox").forEach(el => {
+        groupEdits[el.value] = groupEdits[el.value] || {};
+        groupEdits[el.value].enabled = el.checked;
       });
     }
 
     function seedPhoneEdits(phones) {
       phoneEdits = {};
       for (const p of phones || []) {
-        phoneEdits[p.id] = {
-          phone: p.phone || "",
-          message: p.message || "",
-          enabled: !!p.enabled,
-          name: p.name || "",
-        };
+        phoneEdits[p.id] = { phone: p.phone || "", message: p.message || "", enabled: !!p.enabled, name: p.name || "" };
+      }
+    }
+    function seedGroupEdits(groups) {
+      groupEdits = {};
+      for (const g of groups || []) {
+        groupEdits[g.id] = { message: g.message || "", enabled: !!g.enabled, name: g.name || "" };
       }
     }
 
-    function groupsTargetsFile() {
-      return document.getElementById("groups-targets-file").value.trim();
+    function selectedGroupIds() {
+      syncGroupEditsFromDom();
+      return Object.entries(groupEdits).filter(([, e]) => e.enabled).map(([id]) => id);
+    }
+    function selectedPhoneIds() {
+      syncPhoneEditsFromDom();
+      return Object.entries(phoneEdits).filter(([, e]) => e.enabled).map(([id]) => id);
     }
 
-    function setGroupsControlsEnabled(enabled) {
-      document.getElementById("groups-search").disabled = !enabled;
-      document.getElementById("groups-select-all").disabled = !enabled;
-      document.getElementById("btn-save-groups").disabled = !enabled;
-      document.getElementById("btn-send-groups").disabled = !enabled;
+    function setGroupsControlsEnabled(on) {
+      ["groups-search","groups-select-all","btn-save-groups","btn-save-group-edits"].forEach(id => {
+        document.getElementById(id).disabled = !on;
+      });
+    }
+    function setPhonesControlsEnabled(on) {
+      ["phones-search","phones-select-all","btn-save-phones","btn-save-phone-edits"].forEach(id => {
+        document.getElementById(id).disabled = !on;
+      });
     }
 
-    function renderGroups(groups) {
+    function updateGroupsSendSummary() {
+      syncGroupEditsFromDom();
+      const n = selectedGroupIds().length;
+      const el = document.getElementById("groups-send-summary");
+      if (!loadedGroups.length) { el.textContent = ""; return; }
+      el.textContent = n ? `${n} selecionado(s) para envio` : "Nenhum grupo selecionado";
+      updateComposerContext();
+      updateTabCounts();
+    }
+
+    function renderGroups(groups, resetEdits = false) {
       loadedGroups = groups || [];
+      if (resetEdits) seedGroupEdits(loadedGroups);
+      else {
+        syncGroupEditsFromDom();
+        for (const g of loadedGroups) {
+          if (!groupEdits[g.id]) groupEdits[g.id] = { message: g.message || "", enabled: !!g.enabled, name: g.name || "" };
+        }
+      }
       const list = document.getElementById("groups-list");
-      const meta = document.getElementById("groups-meta");
-      const pager = document.getElementById("groups-pager");
       const filter = document.getElementById("groups-search").value.trim().toLowerCase();
-
       if (!loadedGroups.length) {
-        list.innerHTML = '<span class="hint">Nenhum grupo encontrado. Gere o inventário primeiro.</span>';
-        meta.textContent = "Nenhum grupo carregado.";
-        pager.hidden = true;
+        list.innerHTML = '<span class="hint">Nenhum grupo. Gere o inventário primeiro.</span>';
+        document.getElementById("groups-meta").textContent = "Nenhum grupo carregado.";
+        document.getElementById("groups-pager").hidden = true;
         setGroupsControlsEnabled(false);
+        updateGroupsSendSummary();
         return;
       }
-
-      const visible = loadedGroups.filter(g => {
-        const label = `${g.name || ""} ${g.id || ""}`.toLowerCase();
-        return !filter || label.includes(filter);
-      });
-
+      const visible = loadedGroups.filter(g => `${g.name||""} ${g.id||""}`.toLowerCase().includes(filter) || !filter);
       if (filter) groupsPage = 0;
       const totalPages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
       if (groupsPage >= totalPages) groupsPage = totalPages - 1;
       const pageItems = visible.slice(groupsPage * PAGE_SIZE, (groupsPage + 1) * PAGE_SIZE);
-
-      const enabledCount = loadedGroups.filter(g => g.enabled).length;
-      meta.textContent = `${loadedGroups.length} grupos · ${enabledCount} habilitados · ${visible.length} no filtro · página ${groupsPage + 1}/${totalPages}`;
-
-      if (!pageItems.length) {
-        list.innerHTML = '<span class="hint">Nenhum grupo corresponde ao filtro.</span>';
-      } else {
-        list.innerHTML = pageItems.map(g => `
-          <label class="target-item group-item" data-name="${escapeHtml((g.name || g.id || "").toLowerCase())}">
-            <input type="checkbox" class="group-checkbox" value="${escapeHtml(g.id)}" ${g.enabled ? "checked" : ""}>
-            <span><strong>${escapeHtml(g.name || g.id)}</strong><small>${escapeHtml(g.id)}${g.send_enabled ? " · envio habilitado" : ""}</small></span>
-          </label>
-        `).join("");
-      }
-
+      document.getElementById("groups-meta").textContent =
+        `${loadedGroups.length} grupos · ${Object.values(groupEdits).filter(e=>e.enabled).length} selecionados · pág. ${groupsPage+1}/${totalPages}`;
+      list.innerHTML = pageItems.length ? pageItems.map(g => {
+        const edit = groupEdits[g.id] || {};
+        return `<div class="target-item group-item" data-name="${escapeHtml((g.name||g.id||"").toLowerCase())}">
+          <div class="group-edit-row">
+            <input type="checkbox" class="group-checkbox" value="${escapeHtml(g.id)}" ${(edit.enabled??g.enabled)?"checked":""}>
+            <span class="group-label"><strong title="${escapeHtml(g.name||g.id)}">${escapeHtml(g.name||g.id)}</strong><small>${escapeHtml(g.id)}</small></span>
+            <input type="text" class="group-edit-message" data-id="${escapeHtml(g.id)}" placeholder="Msg individual" value="${escapeHtml(edit.message??g.message??"")}">
+          </div></div>`;
+      }).join("") : '<span class="hint">Nenhum resultado no filtro.</span>';
+      list.querySelectorAll(".group-checkbox").forEach(el => el.addEventListener("change", updateGroupsSendSummary));
+      const pager = document.getElementById("groups-pager");
       pager.hidden = visible.length <= PAGE_SIZE;
-      document.getElementById("groups-page-label").textContent = `Página ${groupsPage + 1} de ${totalPages}`;
+      document.getElementById("groups-page-label").textContent = `Página ${groupsPage+1} de ${totalPages}`;
       document.getElementById("groups-prev").disabled = groupsPage <= 0;
       document.getElementById("groups-next").disabled = groupsPage >= totalPages - 1;
-
       setGroupsControlsEnabled(true);
-      const selectAll = document.getElementById("groups-select-all");
-      selectAll.checked = pageItems.length > 0 && pageItems.every(g => {
-        const el = list.querySelector(`.group-checkbox[value="${CSS.escape(g.id)}"]`);
-        return el && el.checked;
-      });
-    }
-
-    async function loadGroupsList() {
-      const file = groupsTargetsFile();
-      const result = await api(`/api/groups/send-targets?targets_output=${encodeURIComponent(file)}`);
-      if (result.ok && result.body.targets) {
-        renderGroups(result.body.targets);
-      }
-    }
-
-    function phonesTargetsFile() {
-      return document.getElementById("phones-targets-file").value.trim();
-    }
-
-    function setPhonesControlsEnabled(enabled) {
-      document.getElementById("phones-search").disabled = !enabled;
-      document.getElementById("phones-select-all").disabled = !enabled;
-      document.getElementById("btn-save-phones").disabled = !enabled;
-      document.getElementById("btn-save-phone-edits").disabled = !enabled;
-      document.getElementById("btn-send-phones").disabled = !enabled;
+      updateGroupsSendSummary();
     }
 
     function renderPhones(phones, resetEdits = false) {
       loadedPhones = phones || [];
-      if (resetEdits) {
-        seedPhoneEdits(loadedPhones);
-      } else {
+      if (resetEdits) seedPhoneEdits(loadedPhones);
+      else {
         syncPhoneEditsFromDom();
         for (const p of loadedPhones) {
-          if (!phoneEdits[p.id]) {
-            phoneEdits[p.id] = {
-              phone: p.phone || "",
-              message: p.message || "",
-              enabled: !!p.enabled,
-              name: p.name || "",
-            };
-          }
+          if (!phoneEdits[p.id]) phoneEdits[p.id] = { phone: p.phone||"", message: p.message||"", enabled: !!p.enabled, name: p.name||"" };
         }
       }
       const list = document.getElementById("phones-list");
-      const meta = document.getElementById("phones-meta");
-      const pager = document.getElementById("phones-pager");
       const filter = document.getElementById("phones-search").value.trim().toLowerCase();
-
       if (!loadedPhones.length) {
-        list.innerHTML = '<span class="hint">Nenhum número cadastrado neste arquivo.</span>';
-        meta.textContent = "Nenhum número carregado.";
-        pager.hidden = true;
+        list.innerHTML = '<span class="hint">Nenhum número neste arquivo.</span>';
+        document.getElementById("phones-meta").textContent = "Nenhum número carregado.";
+        document.getElementById("phones-pager").hidden = true;
         setPhonesControlsEnabled(false);
+        updatePhonesSendSummary();
         return;
       }
-
-      const visible = loadedPhones.filter(p => {
-        const label = `${p.phone || ""} ${p.id || ""} ${p.name || ""}`.toLowerCase();
-        return !filter || label.includes(filter);
-      });
-
+      const visible = loadedPhones.filter(p => `${p.phone||""} ${p.id||""} ${p.name||""}`.toLowerCase().includes(filter) || !filter);
       if (filter) phonesPage = 0;
       const totalPages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
       if (phonesPage >= totalPages) phonesPage = totalPages - 1;
       const pageItems = visible.slice(phonesPage * PAGE_SIZE, (phonesPage + 1) * PAGE_SIZE);
-
-      const enabledCount = loadedPhones.filter(p => p.enabled).length;
-      meta.textContent = `${loadedPhones.length} números · ${enabledCount} habilitados · ${visible.length} no filtro · página ${phonesPage + 1}/${totalPages}`;
-
-      if (!pageItems.length) {
-        list.innerHTML = '<span class="hint">Nenhum número corresponde ao filtro.</span>';
-      } else {
-        list.innerHTML = pageItems.map(p => {
-          const edit = phoneEdits[p.id] || {};
-          return `
-          <div class="target-item phone-item" data-name="${escapeHtml((p.phone || p.id || "").toLowerCase())}">
-            <label class="phone-edit-row">
-              <input type="checkbox" class="phone-checkbox" value="${escapeHtml(p.id)}" ${edit.enabled ? "checked" : ""}>
-              <input type="text" class="phone-edit-number" data-id="${escapeHtml(p.id)}" value="${escapeHtml(edit.phone || p.phone || "")}" placeholder="Telefone">
-              <input type="text" class="phone-edit-message" data-id="${escapeHtml(p.id)}" value="${escapeHtml(edit.message || p.message || "")}" placeholder="Mensagem individual">
-            </label>
-            <small>${escapeHtml(p.id)}${p.name ? " · " + escapeHtml(p.name) : ""}</small>
-          </div>`;
-        }).join("");
-      }
-
-      pager.hidden = visible.length <= PAGE_SIZE;
-      document.getElementById("phones-page-label").textContent = `Página ${phonesPage + 1} de ${totalPages}`;
+      document.getElementById("phones-meta").textContent =
+        `${loadedPhones.length} números · ${Object.values(phoneEdits).filter(e=>e.enabled).length} selecionados · pág. ${phonesPage+1}/${totalPages}`;
+      list.innerHTML = pageItems.length ? pageItems.map(p => {
+        const edit = phoneEdits[p.id] || {};
+        return `<div class="target-item phone-item" data-name="${escapeHtml((p.phone||p.id||"").toLowerCase())}">
+          <label class="phone-edit-row">
+            <input type="checkbox" class="phone-checkbox" value="${escapeHtml(p.id)}" ${edit.enabled?"checked":""}>
+            <input type="text" class="phone-edit-number" data-id="${escapeHtml(p.id)}" value="${escapeHtml(edit.phone||p.phone||"")}" placeholder="Telefone">
+            <input type="text" class="phone-edit-message" data-id="${escapeHtml(p.id)}" value="${escapeHtml(edit.message||p.message||"")}" placeholder="Msg individual">
+          </label>
+          <small>${escapeHtml(p.id)}${p.name?" · "+escapeHtml(p.name):""}</small>
+        </div>`;
+      }).join("") : '<span class="hint">Nenhum resultado no filtro.</span>';
+      list.querySelectorAll(".phone-checkbox").forEach(el => el.addEventListener("change", updatePhonesSendSummary));
+      document.getElementById("phones-pager").hidden = visible.length <= PAGE_SIZE;
+      document.getElementById("phones-page-label").textContent = `Página ${phonesPage+1} de ${totalPages}`;
       document.getElementById("phones-prev").disabled = phonesPage <= 0;
       document.getElementById("phones-next").disabled = phonesPage >= totalPages - 1;
-
       setPhonesControlsEnabled(true);
-      const selectAll = document.getElementById("phones-select-all");
-      selectAll.checked = pageItems.length > 0 && pageItems.every(p => {
-        const el = list.querySelector(`.phone-checkbox[value="${CSS.escape(p.id)}"]`);
-        return el && el.checked;
-      });
+      updatePhonesSendSummary();
     }
 
-    async function loadPhonesList() {
-      const file = phonesTargetsFile();
-      const result = await api(`/api/phones/send-targets?targets=${encodeURIComponent(file)}`);
+    async function loadGroupsList() {
+      const result = await api(`/api/groups/send-targets?targets_output=${encodeURIComponent(groupsTargetsFile())}`);
       if (result.ok && result.body.targets) {
-        renderPhones(result.body.targets, true);
+        renderGroups(result.body.targets, true);
+        const sample = result.body.targets.find(g => g.message);
+        if (sample?.message && !document.getElementById("composer-message").value.trim()) {
+          document.getElementById("composer-message").value = sample.message;
+        }
       }
     }
+    async function loadPhonesList() {
+      const result = await api(`/api/phones/send-targets?targets=${encodeURIComponent(phonesTargetsFile())}`);
+      if (result.ok && result.body.targets) renderPhones(result.body.targets, true);
+    }
 
-    function renderTargets(targets) {
-      const list = document.getElementById("targets-list");
-      if (!targets.length) {
-        list.innerHTML = '<span class="hint">Nenhum alvo habilitado encontrado.</span>';
+    async function sendFromComposer(confirm) {
+      const message = document.getElementById("composer-message").value.trim();
+      const fileInput = document.getElementById("composer-attachment");
+      let attachment = pendingAttachmentPath;
+
+      if (fileInput.files?.length && !attachment) {
+        attachment = await handleAttachmentFile(fileInput.files[0]);
+        if (!attachment) return;
+      }
+
+      let targets, target_ids;
+      if (activeTab === "groups") {
+        targets = groupsTargetsFile();
+        target_ids = selectedGroupIds();
+      } else if (activeTab === "phones") {
+        targets = phonesTargetsFile();
+        target_ids = selectedPhoneIds();
+      } else {
+        show({ error: "Abra a aba Grupos ou Contatos para enviar." });
         return;
       }
-      list.innerHTML = targets.map(t => `
-        <label class="target-item">
-          <input type="checkbox" class="target-checkbox" value="${t.id}" checked>
-          <span><strong>${t.id}</strong> (${t.type})<small>${t.name || t.phone || ""}${t.send_enabled ? " · envio habilitado" : ""}</small></span>
-        </label>
-      `).join("");
+
+      if (!target_ids.length) {
+        toast("Selecione ao menos um destinatário.", "err");
+        show({ error: "Selecione ao menos um destinatário." });
+        return;
+      }
+      if (!message && !attachment) {
+        toast("Informe mensagem ou anexo.", "err");
+        show({ error: "Informe uma mensagem ou selecione um anexo." });
+        return;
+      }
+
+      const btns = ["btn-composer-send", "btn-composer-simulate"];
+      btns.forEach(id => document.getElementById(id).disabled = true);
+      try {
+        await api("/api/send/once", {
+          method: "POST",
+          body: JSON.stringify({ targets, target_ids, message: message || "", attachment, confirm }),
+        });
+      } finally {
+        btns.forEach(id => document.getElementById(id).disabled = false);
+      }
     }
+
+    document.querySelectorAll("nav.tabs button").forEach(btn => {
+      btn.addEventListener("click", () => switchTab(btn.dataset.tab));
+    });
+
+    const dropzone = document.getElementById("attachment-dropzone");
+    ["dragenter", "dragover"].forEach(ev => {
+      dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.add("dragover"); });
+    });
+    ["dragleave", "drop"].forEach(ev => {
+      dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.remove("dragover"); });
+    });
+    dropzone.addEventListener("drop", async e => {
+      const file = e.dataTransfer?.files?.[0];
+      if (file) await handleAttachmentFile(file);
+    });
+
+    document.getElementById("composer-attachment").addEventListener("change", async (ev) => {
+      const file = ev.target.files?.[0];
+      if (!file) { clearAttachment(); return; }
+      await handleAttachmentFile(file);
+    });
+    document.getElementById("btn-clear-attachment").addEventListener("click", clearAttachment);
+
+    document.getElementById("composer-message").addEventListener("input", (ev) => {
+      document.getElementById("composer-char-count").textContent = String(ev.target.value.length);
+    });
+
+    document.addEventListener("keydown", (ev) => {
+      if ((ev.ctrlKey || ev.metaKey) && ev.key === "Enter") {
+        if (activeTab === "groups" || activeTab === "phones") {
+          ev.preventDefault();
+          if (document.getElementById("composer-confirm").checked) sendFromComposer(true);
+          else sendFromComposer(false);
+        }
+      }
+    });
 
     document.getElementById("btn-refresh-status").addEventListener("click", refreshStatus);
-    document.getElementById("btn-validate").addEventListener("click", () =>
-      api("/api/automation/start", { method: "POST", body: "{}" })
-    );
-    document.getElementById("btn-launch").addEventListener("click", () =>
-      api("/api/automation/start", { method: "POST", body: JSON.stringify({ launch: true }) })
-    );
-    document.getElementById("btn-launch-visible").addEventListener("click", async () => {
-      const result = await api("/api/automation/start", {
-        method: "POST",
-        body: JSON.stringify({ launch: true, visible: true }),
-      });
-      if (result.ok && result.body?.message) {
-        show(result.body);
-      }
-    });
-    document.getElementById("btn-stop").addEventListener("click", () =>
-      api("/api/automation/stop", { method: "POST", body: "{}" })
-    );
-    document.getElementById("btn-load-targets").addEventListener("click", async () => {
-      const file = document.getElementById("targets-file").value;
-      const result = await api(`/api/send/targets?targets=${encodeURIComponent(file)}`);
-      if (result.ok && result.body.targets) renderTargets(result.body.targets);
-    });
-    document.getElementById("btn-send").addEventListener("click", () => {
-      const target_ids = selectedTargetIds();
-      const message = document.getElementById("message").value.trim();
-      const confirm = document.getElementById("confirm-send").checked;
-      const targets = document.getElementById("targets-file").value;
-      if (!target_ids.length && message) {
-        show({ error: "Selecione ao menos um alvo ou deixe a mensagem vazia." });
+    document.getElementById("btn-validate").addEventListener("click", () => api("/api/automation/start", { method: "POST", body: "{}" }));
+    document.getElementById("btn-launch").addEventListener("click", () => api("/api/automation/start", { method: "POST", body: JSON.stringify({ launch: true }) }));
+    document.getElementById("btn-launch-visible").addEventListener("click", () => api("/api/automation/start", { method: "POST", body: JSON.stringify({ launch: true, visible: true }) }));
+    document.getElementById("btn-stop").addEventListener("click", () => api("/api/automation/stop", { method: "POST", body: "{}" }));
+
+    document.getElementById("btn-composer-simulate").addEventListener("click", () => sendFromComposer(false));
+    document.getElementById("btn-composer-send").addEventListener("click", () => {
+      if (!document.getElementById("composer-confirm").checked) {
+        toast("Marque “Envio real” ou use Simular.", "err");
         return;
       }
-      api("/api/send/once", {
-        method: "POST",
-        body: JSON.stringify({ targets, target_ids, message: message || undefined, confirm }),
-      });
+      sendFromComposer(true);
     });
-    document.getElementById("btn-last-send").addEventListener("click", () => api("/api/send/last"));
-    document.getElementById("btn-sync-contacts").addEventListener("click", async () => {
-      const targets = phonesTargetsFile();
-      const result = await api("/api/contacts/sync", {
-        method: "POST",
-        body: JSON.stringify({ targets }),
-      });
-      if (result.ok) await loadPhonesList();
-    });
-    document.getElementById("btn-last-contacts").addEventListener("click", () => api("/api/contacts/last"));
-    document.getElementById("btn-load-phones").addEventListener("click", loadPhonesList);
-    document.getElementById("phones-search").addEventListener("input", () => renderPhones(loadedPhones));
-    document.getElementById("phones-prev").addEventListener("click", () => {
-      syncPhoneEditsFromDom();
-      phonesPage = Math.max(0, phonesPage - 1);
-      renderPhones(loadedPhones);
-    });
-    document.getElementById("phones-next").addEventListener("click", () => {
-      syncPhoneEditsFromDom();
-      phonesPage += 1;
-      renderPhones(loadedPhones);
-    });
-    document.getElementById("phones-select-all").addEventListener("change", (ev) => {
-      const checked = ev.target.checked;
-      document.querySelectorAll(".phones-list .phone-checkbox, #phones-list .phone-checkbox").forEach(el => {
-        const item = el.closest(".phone-item");
-        const filter = document.getElementById("phones-search").value.trim().toLowerCase();
-        const name = item?.dataset.name || "";
-        if (!filter || name.includes(filter)) el.checked = checked;
-      });
-    });
-    document.getElementById("btn-save-phones").addEventListener("click", async () => {
-      syncPhoneEditsFromDom();
-      const selected_ids = selectedPhoneIds();
-      const message = document.getElementById("message").value.trim();
-      const result = await api("/api/phones/selection", {
-        method: "POST",
-        body: JSON.stringify({
-          targets: phonesTargetsFile(),
-          selected_ids,
-          message: message || undefined,
-        }),
-      });
-      if (result.ok) await loadPhonesList();
-    });
-    document.getElementById("btn-save-phone-edits").addEventListener("click", async () => {
-      syncPhoneEditsFromDom();
-      const byId = new Map((loadedPhones || []).map(p => [p.id, p]));
-      const updates = Object.entries(phoneEdits)
-        .map(([id, edit]) => {
-          const original = byId.get(id) || {};
-          const phone = edit.phone ?? original.phone ?? "";
-          const message = edit.message ?? original.message ?? "";
-          const enabled = edit.enabled ?? !!original.enabled;
-          const changed =
-            phone !== (original.phone || "") ||
-            message !== (original.message || "") ||
-            enabled !== !!original.enabled;
-          if (!changed) return null;
-          return { id, phone, message, enabled };
-        })
-        .filter(Boolean);
-      if (!updates.length) {
-        show({ ok: true, message: "Nenhuma alteração para salvar." });
-        return;
-      }
-      const result = await api("/api/phones/update", {
-        method: "POST",
-        body: JSON.stringify({
-          targets: phonesTargetsFile(),
-          updates,
-        }),
-      });
-      if (result.ok) await loadPhonesList();
-    });
-    document.getElementById("btn-send-phones").addEventListener("click", () => {
-      const target_ids = selectedPhoneIds();
-      const message = document.getElementById("message").value.trim();
-      const confirm = document.getElementById("confirm-send").checked;
-      const targets = phonesTargetsFile();
-      if (!target_ids.length) {
-        show({ error: "Selecione ao menos um número." });
-        return;
-      }
-      if (!message) {
-        show({ error: "Informe a mensagem antes de enviar para os números." });
-        return;
-      }
-      api("/api/send/once", {
-        method: "POST",
-        body: JSON.stringify({ targets, target_ids, message, confirm }),
-      });
-    });
+    document.getElementById("btn-composer-last").addEventListener("click", () => api("/api/send/last"));
+
     document.getElementById("btn-generate-groups").addEventListener("click", async () => {
-      const file = groupsTargetsFile();
-      const mergeConfig = document.getElementById("groups-merge-config").checked;
-      const extraNames = document.getElementById("groups-extra-names").value
-        .split(/\r?\n/)
-        .map(line => line.trim())
-        .filter(Boolean);
       const result = await api("/api/groups/generate", {
         method: "POST",
         body: JSON.stringify({
-          targets_output: file,
-          merge_into_config: mergeConfig,
-          merge_targets: mergeConfig ? "config/targets.json" : null,
-          resolve_names: extraNames,
+          targets_output: groupsTargetsFile(),
+          merge_into_config: document.getElementById("groups-merge-config").checked,
+          merge_targets: document.getElementById("groups-merge-config").checked ? "config/targets.json" : null,
         }),
       });
       if (result.ok) await loadGroupsList();
@@ -746,57 +1142,113 @@
     document.getElementById("btn-load-groups").addEventListener("click", loadGroupsList);
     document.getElementById("btn-last-groups").addEventListener("click", () => api("/api/groups/last"));
     document.getElementById("groups-search").addEventListener("input", () => renderGroups(loadedGroups));
-    document.getElementById("groups-prev").addEventListener("click", () => {
-      groupsPage = Math.max(0, groupsPage - 1);
-      renderGroups(loadedGroups);
-    });
-    document.getElementById("groups-next").addEventListener("click", () => {
-      groupsPage += 1;
-      renderGroups(loadedGroups);
-    });
+    document.getElementById("groups-prev").addEventListener("click", () => { syncGroupEditsFromDom(); groupsPage = Math.max(0, groupsPage-1); renderGroups(loadedGroups); });
+    document.getElementById("groups-next").addEventListener("click", () => { syncGroupEditsFromDom(); groupsPage++; renderGroups(loadedGroups); });
     document.getElementById("groups-select-all").addEventListener("change", (ev) => {
+      syncGroupEditsFromDom();
       const checked = ev.target.checked;
-      document.querySelectorAll(".group-item:not([hidden]) .group-checkbox, .groups-list .group-checkbox").forEach(el => {
-        const item = el.closest(".group-item");
-        const filter = document.getElementById("groups-search").value.trim().toLowerCase();
-        const name = item?.dataset.name || "";
-        if (!filter || name.includes(filter)) el.checked = checked;
+      const filter = document.getElementById("groups-search").value.trim().toLowerCase();
+      document.querySelectorAll(".group-item .group-checkbox").forEach(el => {
+        const name = el.closest(".group-item")?.dataset.name || "";
+        if (!filter || name.includes(filter)) {
+          el.checked = checked;
+          groupEdits[el.value] = groupEdits[el.value] || {};
+          groupEdits[el.value].enabled = checked;
+        }
       });
+      updateGroupsSendSummary();
     });
     document.getElementById("btn-save-groups").addEventListener("click", async () => {
-      const selected_ids = selectedGroupIds();
-      const message = document.getElementById("message").value.trim();
+      syncGroupEditsFromDom();
       const result = await api("/api/groups/selection", {
         method: "POST",
         body: JSON.stringify({
           targets_output: groupsTargetsFile(),
-          selected_ids,
-          message: message || undefined,
+          selected_ids: selectedGroupIds(),
+          message: document.getElementById("composer-message").value.trim() || undefined,
         }),
       });
       if (result.ok) await loadGroupsList();
     });
-    document.getElementById("btn-send-groups").addEventListener("click", () => {
-      const target_ids = selectedGroupIds();
-      const message = document.getElementById("message").value.trim();
-      const confirm = document.getElementById("confirm-send").checked;
-      const targets = groupsTargetsFile();
-      if (!target_ids.length) {
-        show({ error: "Selecione ao menos um grupo." });
-        return;
-      }
-      if (!message) {
-        show({ error: "Informe a mensagem antes de enviar para os grupos." });
-        return;
-      }
-      api("/api/send/once", {
+    document.getElementById("btn-save-group-edits").addEventListener("click", async () => {
+      syncGroupEditsFromDom();
+      const byId = new Map(loadedGroups.map(g => [g.id, g]));
+      const updates = Object.entries(groupEdits).map(([id, edit]) => {
+        const orig = byId.get(id) || {};
+        const message = edit.message ?? orig.message ?? "";
+        const enabled = edit.enabled ?? !!orig.enabled;
+        if (message === (orig.message||"") && enabled === !!orig.enabled) return null;
+        return { id, message, enabled };
+      }).filter(Boolean);
+      if (!updates.length) { show({ ok: true, message: "Nada a salvar." }); return; }
+      const result = await api("/api/groups/update", {
         method: "POST",
-        body: JSON.stringify({ targets, target_ids, message, confirm }),
+        body: JSON.stringify({ targets_output: groupsTargetsFile(), updates }),
       });
+      if (result.ok) await loadGroupsList();
     });
 
-    refreshStatus();
-    document.getElementById("panel-url").textContent = window.location.origin + "/";
+    document.getElementById("btn-sync-contacts").addEventListener("click", async () => {
+      const result = await api("/api/contacts/sync", { method: "POST", body: JSON.stringify({ targets: phonesTargetsFile() }) });
+      if (result.ok) await loadPhonesList();
+    });
+    document.getElementById("btn-last-contacts").addEventListener("click", () => api("/api/contacts/last"));
+    document.getElementById("btn-load-phones").addEventListener("click", loadPhonesList);
+    document.getElementById("phones-search").addEventListener("input", () => renderPhones(loadedPhones));
+    document.getElementById("phones-prev").addEventListener("click", () => { syncPhoneEditsFromDom(); phonesPage = Math.max(0, phonesPage-1); renderPhones(loadedPhones); });
+    document.getElementById("phones-next").addEventListener("click", () => { syncPhoneEditsFromDom(); phonesPage++; renderPhones(loadedPhones); });
+    document.getElementById("phones-select-all").addEventListener("change", (ev) => {
+      syncPhoneEditsFromDom();
+      const checked = ev.target.checked;
+      const filter = document.getElementById("phones-search").value.trim().toLowerCase();
+      document.querySelectorAll(".phone-item .phone-checkbox").forEach(el => {
+        const name = el.closest(".phone-item")?.dataset.name || "";
+        if (!filter || name.includes(filter)) {
+          el.checked = checked;
+          phoneEdits[el.value] = phoneEdits[el.value] || {};
+          phoneEdits[el.value].enabled = checked;
+        }
+      });
+      updatePhonesSendSummary();
+    });
+    document.getElementById("btn-save-phones").addEventListener("click", async () => {
+      syncPhoneEditsFromDom();
+      const result = await api("/api/phones/selection", {
+        method: "POST",
+        body: JSON.stringify({
+          targets: phonesTargetsFile(),
+          selected_ids: selectedPhoneIds(),
+          message: document.getElementById("composer-message").value.trim() || undefined,
+        }),
+      });
+      if (result.ok) await loadPhonesList();
+    });
+    document.getElementById("btn-save-phone-edits").addEventListener("click", async () => {
+      syncPhoneEditsFromDom();
+      const byId = new Map(loadedPhones.map(p => [p.id, p]));
+      const updates = Object.entries(phoneEdits).map(([id, edit]) => {
+        const orig = byId.get(id) || {};
+        const phone = edit.phone ?? orig.phone ?? "";
+        const message = edit.message ?? orig.message ?? "";
+        const enabled = edit.enabled ?? !!orig.enabled;
+        if (phone === (orig.phone||"") && message === (orig.message||"") && enabled === !!orig.enabled) return null;
+        return { id, phone, message, enabled };
+      }).filter(Boolean);
+      if (!updates.length) { show({ ok: true, message: "Nada a salvar." }); return; }
+      const result = await api("/api/phones/update", {
+        method: "POST",
+        body: JSON.stringify({ targets: phonesTargetsFile(), updates }),
+      });
+      if (result.ok) await loadPhonesList();
+    });
+
+    refreshStatus().then(async () => {
+      if (lastStatus?.whatsapp_authorized === true) {
+        switchTab("groups");
+        await loadGroupsList();
+      }
+    });
+    document.getElementById("panel-url").textContent = window.location.origin + "/painel";
   </script>
 </body>
 </html>
