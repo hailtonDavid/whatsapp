@@ -215,6 +215,33 @@
     .list-meta { font-size: 0.82rem; color: var(--muted); margin-top: 0.35rem; }
     .target-item { padding: 0.4rem 0.25rem; font-size: 0.88rem; }
     .target-item small { color: var(--muted); display: block; }
+    .preview-message {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.55rem;
+      align-items: start;
+      padding: 0.45rem 0.35rem;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.85rem;
+    }
+    .preview-message:last-child { border-bottom: none; }
+    .preview-message.saved { opacity: 0.72; }
+    .preview-message-body small {
+      display: block;
+      color: var(--muted);
+      margin-bottom: 0.2rem;
+      font-size: 0.78rem;
+    }
+    .preview-message-body p { margin: 0; white-space: pre-wrap; word-break: break-word; }
+    .preview-badge {
+      display: inline-block;
+      font-size: 0.72rem;
+      padding: 0.1rem 0.4rem;
+      border-radius: 999px;
+      background: rgba(52,168,83,.18);
+      color: #9be7b0;
+      margin-left: 0.35rem;
+    }
     .phone-edit-row, .group-edit-row {
       display: grid;
       gap: 0.45rem;
@@ -490,9 +517,34 @@
         <div class="list-box" id="phones-list">
           <span class="hint">Carregue ou sincronize os números.</span>
         </div>
+
+        <div class="subhead">Conversas (MongoDB)</div>
+        <p class="hint" id="mongo-status">Configure MONGODB_URI no .env para gravar conversas.</p>
+        <p class="hint">Filtre ou selecione <strong>um número</strong>, clique em <strong>Ler mensagens</strong> e marque o que deseja salvar.</p>
+        <div class="list-meta" id="conversation-read-target">Nenhum número definido para leitura.</div>
+        <label for="conversation-scrolls">Rolagens ao ler histórico</label>
+        <input type="text" id="conversation-scrolls" value="8" inputmode="numeric">
+        <div class="row">
+          <button type="button" class="btn primary" id="btn-preview-conversation">Ler mensagens</button>
+          <button type="button" class="btn" id="btn-read-conversations">Gravar todas automaticamente</button>
+          <button type="button" class="btn" id="btn-fetch-conversation">Recuperar do MongoDB</button>
+          <button type="button" class="btn" id="btn-list-conversations">Listar conversas salvas</button>
+        </div>
+        <div id="conversation-preview" hidden>
+          <div class="list-meta" id="conversation-preview-meta"></div>
+          <div class="row">
+            <label class="checkbox-row" style="margin:0">
+              <input type="checkbox" id="preview-select-all"> Marcar todas pendentes
+            </label>
+            <button type="button" class="btn" id="btn-preview-select-none">Desmarcar todas</button>
+            <button type="button" class="btn primary" id="btn-save-selected-messages" disabled>Salvar selecionadas no MongoDB</button>
+          </div>
+          <div class="list-box" id="conversation-preview-list"></div>
+        </div>
+
         <div class="row">
           <button type="button" class="btn primary" id="btn-save-phones" disabled>Salvar seleção</button>
-          <button type="button" class="btn" id="btn-save-phone-edits" disabled>Salvar edições</button>
+          <button type="button" class="btn" id="btn-save-phone-edits" disabled>Salvar alterações nos números</button>
         </div>
       </section>
     </main>
@@ -711,7 +763,9 @@
         }
         show(body);
         if (body?.ok !== false) {
-          if (body?.dry_run) toast(`Simulação: ${body.successes ?? 0}/${body.total ?? 0} ok`);
+          if (body?.preview) {
+            /* toast customizado no handler de preview */
+          } else if (body?.dry_run) toast(`Simulação: ${body.successes ?? 0}/${body.total ?? 0} ok`);
           else if (body?.successes != null) toast(`Envio: ${body.successes}/${body.total} ok`);
           else if (body?.message) toast(body.message);
           else toast("Concluído");
@@ -903,6 +957,153 @@
       return Object.entries(phoneEdits).filter(([, e]) => e.enabled).map(([id]) => id);
     }
 
+    function selectedPhoneNumbers() {
+      syncPhoneEditsFromDom();
+      const byId = new Map((loadedPhones || []).map(p => [p.id, p]));
+      return selectedPhoneIds()
+        .map(id => (phoneEdits[id]?.phone || byId.get(id)?.phone || "").trim())
+        .filter(Boolean);
+    }
+
+    let conversationPreviewContext = null;
+
+    function getFilteredPhones() {
+      const filter = document.getElementById("phones-search").value.trim().toLowerCase();
+      return (loadedPhones || []).filter(p =>
+        `${p.phone || ""} ${p.id || ""} ${p.name || ""}`.toLowerCase().includes(filter) || !filter
+      );
+    }
+
+    function updateConversationReadTargetHint() {
+      const el = document.getElementById("conversation-read-target");
+      const selection = resolveConversationReadSelection({ quiet: true });
+      if (!selection) {
+        el.textContent = "Filtre ou marque um número para leitura de conversas.";
+        return;
+      }
+      el.textContent = `Número para leitura: ${selection.label}`;
+    }
+
+    function resolveConversationReadSelection({ quiet = false } = {}) {
+      syncPhoneEditsFromDom();
+      const visible = getFilteredPhones();
+      const visibleSelected = visible.filter(p => phoneEdits[p.id]?.enabled);
+
+      if (visibleSelected.length === 1) {
+        const p = visibleSelected[0];
+        const phone = (phoneEdits[p.id]?.phone || p.phone || "").trim();
+        return {
+          target_ids: [p.id],
+          phones: phone ? [phone] : [],
+          label: phone || p.name || p.id,
+        };
+      }
+
+      if (visible.length === 1) {
+        const p = visible[0];
+        const phone = (phoneEdits[p.id]?.phone || p.phone || "").trim();
+        return {
+          target_ids: [p.id],
+          phones: phone ? [phone] : [],
+          label: phone || p.name || p.id,
+        };
+      }
+
+      const target_ids = selectedPhoneIds();
+      const phones = selectedPhoneNumbers();
+      if (target_ids.length === 1) {
+        return {
+          target_ids,
+          phones,
+          label: phones[0] || target_ids[0],
+        };
+      }
+
+      if (!quiet) {
+        if (target_ids.length > 1) {
+          toast("Para ler conversas, filtre até um número ou deixe só um marcado.", "err");
+        } else {
+          toast("Selecione ou filtre um número para ler as mensagens.", "err");
+        }
+      }
+      return null;
+    }
+
+    function requireSinglePhoneSelection() {
+      return resolveConversationReadSelection();
+    }
+
+    function updatePreviewSaveButton() {
+      const btn = document.getElementById("btn-save-selected-messages");
+      const checked = document.querySelectorAll("#conversation-preview-list input[type=checkbox]:checked").length;
+      btn.disabled = checked <= 0;
+    }
+
+    function renderConversationPreview(data) {
+      conversationPreviewContext = {
+        target_id: data.target_id,
+        phone: data.phone,
+        target_name: data.target_name,
+        conversation_key: data.conversation_key,
+        messages: data.messages || [],
+      };
+
+      const panel = document.getElementById("conversation-preview");
+      const meta = document.getElementById("conversation-preview-meta");
+      const list = document.getElementById("conversation-preview-list");
+      const pending = (data.messages || []).filter(msg => !msg.saved_in_db).length;
+      meta.textContent = `${data.target_name || data.phone || data.target_id} · ${data.captured_messages || 0} mensagens lidas · ${data.already_saved_count || 0} já no MongoDB · ${pending} pendentes`;
+      list.innerHTML = (data.messages || []).map((msg, index) => {
+        const saved = !!msg.saved_in_db;
+        const checked = saved ? "" : "checked";
+        const disabled = saved ? "disabled" : "";
+        const badge = saved ? '<span class="preview-badge">já salva</span>' : "";
+        const direction = msg.direction === "outgoing" ? "Enviada" : "Recebida";
+        const text = escapeHtml(msg.text || "(sem texto)");
+        const sender = escapeHtml(msg.sender || "");
+        const ts = escapeHtml(msg.timestamp_text || "");
+        return `<label class="preview-message${saved ? " saved" : ""}">
+          <input type="checkbox" data-index="${index}" ${checked} ${disabled}>
+          <div class="preview-message-body">
+            <small>${direction}${sender ? " · " + sender : ""}${ts ? " · " + ts : ""}${badge}</small>
+            <p>${text}</p>
+          </div>
+        </label>`;
+      }).join("") || '<span class="hint">Nenhuma mensagem encontrada nesta conversa.</span>';
+
+      panel.hidden = false;
+      document.getElementById("preview-select-all").checked = pending > 0;
+      updatePreviewSaveButton();
+    }
+
+    function collectSelectedPreviewMessages() {
+      if (!conversationPreviewContext) return [];
+      const selected = [];
+      document.querySelectorAll("#conversation-preview-list input[type=checkbox]:checked").forEach(input => {
+        const index = parseInt(input.dataset.index, 10);
+        const msg = conversationPreviewContext.messages[index];
+        if (msg) selected.push(msg);
+      });
+      return selected;
+    }
+
+    async function refreshMongoStatus() {
+      try {
+        const res = await fetch("/api/conversations/status");
+        const data = await res.json();
+        const el = document.getElementById("mongo-status");
+        if (data.ok) {
+          el.textContent = `MongoDB conectado · banco ${data.database} · ${data.conversations_collection}/${data.messages_collection}`;
+        } else if (!data.configured) {
+          el.textContent = "Configure MONGODB_URI no .env (ex.: mongodb://localhost:27017).";
+        } else {
+          el.textContent = `MongoDB: ${data.error || "indisponível"}`;
+        }
+      } catch {
+        document.getElementById("mongo-status").textContent = "Não foi possível verificar o MongoDB.";
+      }
+    }
+
     function setGroupsControlsEnabled(on) {
       ["groups-search","groups-select-all","btn-save-groups","btn-save-group-edits"].forEach(id => {
         document.getElementById(id).disabled = !on;
@@ -1013,6 +1214,7 @@
       document.getElementById("phones-next").disabled = phonesPage >= totalPages - 1;
       setPhonesControlsEnabled(true);
       updatePhonesSendSummary();
+      updateConversationReadTargetHint();
     }
 
     async function loadGroupsList() {
@@ -1194,7 +1396,10 @@
     });
     document.getElementById("btn-last-contacts").addEventListener("click", () => api("/api/contacts/last"));
     document.getElementById("btn-load-phones").addEventListener("click", loadPhonesList);
-    document.getElementById("phones-search").addEventListener("input", () => renderPhones(loadedPhones));
+    document.getElementById("phones-search").addEventListener("input", () => {
+      renderPhones(loadedPhones);
+      updateConversationReadTargetHint();
+    });
     document.getElementById("phones-prev").addEventListener("click", () => { syncPhoneEditsFromDom(); phonesPage = Math.max(0, phonesPage-1); renderPhones(loadedPhones); });
     document.getElementById("phones-next").addEventListener("click", () => { syncPhoneEditsFromDom(); phonesPage++; renderPhones(loadedPhones); });
     document.getElementById("phones-select-all").addEventListener("change", (ev) => {
@@ -1242,12 +1447,126 @@
       if (result.ok) await loadPhonesList();
     });
 
+    document.getElementById("btn-preview-conversation").addEventListener("click", async () => {
+      const selection = resolveConversationReadSelection();
+      if (!selection) return;
+      const scrolls = parseInt(document.getElementById("conversation-scrolls").value, 10) || 8;
+      const result = await api("/api/conversations/preview", {
+        method: "POST",
+        body: JSON.stringify({
+          targets: phonesTargetsFile(),
+          target_ids: selection.target_ids,
+          phones: selection.phones,
+          scrolls,
+        }),
+      });
+      if (result.ok && result.body?.preview) {
+        renderConversationPreview(result.body);
+        const n = result.body.captured_messages || 0;
+        if (n === 0) {
+          toast(`Conversa de ${selection.label} aberta, mas nenhuma mensagem foi capturada.`, "err");
+        } else {
+          toast(`${n} mensagens de ${selection.label}. Marque as que deseja salvar.`);
+        }
+      }
+    });
+
+    document.getElementById("preview-select-all").addEventListener("change", (event) => {
+      const checked = event.target.checked;
+      document.querySelectorAll("#conversation-preview-list input[type=checkbox]:not(:disabled)").forEach(input => {
+        input.checked = checked;
+      });
+      updatePreviewSaveButton();
+    });
+
+    document.getElementById("btn-preview-select-none").addEventListener("click", () => {
+      document.querySelectorAll("#conversation-preview-list input[type=checkbox]").forEach(input => {
+        input.checked = false;
+      });
+      document.getElementById("preview-select-all").checked = false;
+      updatePreviewSaveButton();
+    });
+
+    document.getElementById("conversation-preview-list").addEventListener("change", (event) => {
+      if (event.target.matches("input[type=checkbox]")) {
+        updatePreviewSaveButton();
+      }
+    });
+
+    document.getElementById("btn-save-selected-messages").addEventListener("click", async () => {
+      if (!conversationPreviewContext) {
+        toast("Leia as mensagens antes de salvar.", "err");
+        return;
+      }
+      const messages = collectSelectedPreviewMessages();
+      if (!messages.length) {
+        toast("Marque ao menos uma mensagem para salvar.", "err");
+        return;
+      }
+      const result = await api("/api/conversations/save", {
+        method: "POST",
+        body: JSON.stringify({
+          phone: conversationPreviewContext.phone,
+          target_id: conversationPreviewContext.target_id,
+          target_name: conversationPreviewContext.target_name,
+          target_type: "phone",
+          messages,
+        }),
+      });
+      if (result.ok) {
+        toast(`${result.body.saved_count || messages.length} mensagem(ns) salva(s).`);
+        conversationPreviewContext.messages.forEach(msg => {
+          if (messages.some(selected => selected.hash === msg.hash)) {
+            msg.saved_in_db = true;
+          }
+        });
+        renderConversationPreview({
+          ...conversationPreviewContext,
+          captured_messages: conversationPreviewContext.messages.length,
+          already_saved_count: conversationPreviewContext.messages.filter(m => m.saved_in_db).length,
+        });
+        refreshMongoStatus();
+      }
+    });
+
+    document.getElementById("btn-read-conversations").addEventListener("click", async () => {
+      syncPhoneEditsFromDom();
+      const target_ids = selectedPhoneIds();
+      const phones = selectedPhoneNumbers();
+      if (!target_ids.length && !phones.length) {
+        toast("Selecione ao menos um número.", "err");
+        return;
+      }
+      const scrolls = parseInt(document.getElementById("conversation-scrolls").value, 10) || 8;
+      await api("/api/conversations/read", {
+        method: "POST",
+        body: JSON.stringify({
+          targets: phonesTargetsFile(),
+          target_ids,
+          phones,
+          scrolls,
+        }),
+      });
+    });
+    document.getElementById("btn-fetch-conversation").addEventListener("click", async () => {
+      const selection = requireSinglePhoneSelection();
+      if (!selection) return;
+      const phone = selection.phones[0];
+      const target_id = selection.target_ids[0];
+      const qs = new URLSearchParams();
+      if (phone) qs.set("phone", phone);
+      else qs.set("target_id", target_id);
+      await api(`/api/conversations?${qs.toString()}`);
+    });
+    document.getElementById("btn-list-conversations").addEventListener("click", () => api("/api/conversations/list"));
+
     refreshStatus().then(async () => {
       if (lastStatus?.whatsapp_authorized === true) {
         switchTab("groups");
         await loadGroupsList();
       }
     });
+    refreshMongoStatus();
     document.getElementById("panel-url").textContent = window.location.origin + "/painel";
   </script>
 </body>

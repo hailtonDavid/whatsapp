@@ -17,6 +17,7 @@ from playwright.async_api import Browser, BrowserContext, Page, Playwright, asyn
 
 from app import create_app
 from automation_service import reset_held_automation_session_for_tests
+from conversation_store import reset_conversation_store_cache_for_tests
 from playwright_lifecycle import shutdown_playwright_stack
 from whatsapp_auto_downloader import MessageState, load_app_config
 
@@ -88,8 +89,10 @@ def reset_test_state_before_each_test(test_sandbox: Path) -> Generator[None, Non
     state_dir = test_sandbox / "state"
     export_dir = test_sandbox / "exports"
     reset_persistent_test_state(state_dir, export_dir)
+    reset_conversation_store_cache_for_tests()
     yield
     reset_persistent_test_state(state_dir, export_dir)
+    reset_conversation_store_cache_for_tests()
 
 
 @pytest.fixture(autouse=True)
@@ -115,6 +118,8 @@ def env_file(test_sandbox: Path) -> Path:
                 "WA_READY_TIMEOUT=30",
                 f"WA_EXPORT_DIR={(test_sandbox / 'exports').as_posix()}",
                 f"WA_STATE_DIR={(test_sandbox / 'state').as_posix()}",
+                "MONGODB_URI=memory://",
+                "MONGODB_DB=whatsapp_test",
             ]
         ),
         encoding="utf-8",

@@ -18,6 +18,8 @@ from automation_service import (
     automation_job_timeout,
     ensure_whatsapp_authorized,
     execute_list_groups_job,
+    execute_preview_conversation_job,
+    execute_read_conversations_job,
     execute_send_job,
     execute_sync_contacts_job,
     get_held_automation_headless,
@@ -31,9 +33,11 @@ from automation_service import (
     read_groups_inventory,
     read_groups_targets_template,
     read_last_send_results,
+    save_selected_conversation_messages,
     save_uploaded_attachment,
     stop_automation,
 )
+from conversation_store import get_conversation_store, load_mongo_settings
 from wa_selectors import WHATSAPP_LOGIN_SELECTOR
 from whatsapp_auto_downloader import WA_URL, load_app_config, resolve_project_path
 
@@ -120,6 +124,35 @@ def _parse_contacts_payload(*, default_output: str, default_targets: str) -> dic
     }
 
 
+def _parse_conversations_read_payload(*, default_targets: str) -> dict:
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        payload = {}
+
+    target_ids = payload.get("target_ids") or payload.get("selected_ids") or []
+    if isinstance(target_ids, str):
+        target_ids = [target_ids]
+    elif not isinstance(target_ids, list):
+        target_ids = [str(target_ids)]
+
+    phones = payload.get("phones") or payload.get("phone") or []
+    if isinstance(phones, str):
+        phones = [phones]
+    elif not isinstance(phones, list):
+        phones = [str(phones)]
+
+    scrolls = payload.get("scrolls")
+    if scrolls is not None:
+        scrolls = int(scrolls)
+
+    return {
+        "targets": payload.get("targets") or request.args.get("targets") or default_targets,
+        "target_ids": [str(item) for item in target_ids if item],
+        "phones": [str(item) for item in phones if item],
+        "scrolls": scrolls,
+    }
+
+
 def create_app(
     env_file: Path | None = None,
     *,
@@ -190,6 +223,12 @@ def create_app(
                     "phones_update": "POST /api/phones/update",
                     "contacts_sync": "POST /api/contacts/sync",
                     "contacts_last": "/api/contacts/last",
+                    "conversations_read": "POST /api/conversations/read",
+                    "conversations_preview": "POST /api/conversations/preview",
+                    "conversations_save": "POST /api/conversations/save",
+                    "conversations_get": "GET /api/conversations",
+                    "conversations_list": "GET /api/conversations/list",
+                    "conversations_status": "GET /api/conversations/status",
                     "groups_generate": "POST /api/groups/generate",
                     "groups_last": "/api/groups/last",
                     "groups_targets_template": "/api/groups/targets-template",
@@ -750,6 +789,146 @@ def create_app(
         if outcome.get("requires_qr"):
             return jsonify(outcome), 403
 
+        status = 200 if outcome.get("ok") else 422
+        return jsonify(outcome), status
+
+    @app.get("/api/conversations/status")
+    def conversations_status():
+        store = get_conversation_store()
+        settings = load_mongo_settings()
+        ping = store.ping() if store.enabled else {"ok": False, "error": "MONGODB_URI não configurado."}
+        return jsonify(
+            {
+                "configured": bool(settings.uri),
+                "database": settings.database,
+                "conversations_collection": settings.conversations_collection,
+                "messages_collection": settings.messages_collection,
+                **ping,
+            }
+        ), 200
+
+    @app.get("/api/conversations/list")
+    def conversations_list():
+        store = get_conversation_store()
+        if not store.enabled:
+            return jsonify({"ok": False, "error": "MongoDB não configurado."}), 400
+        limit = int(request.args.get("limit") or 100)
+        return jsonify(store.list_conversations(limit=limit)), 200
+
+    @app.get("/api/conversations")
+    def conversations_get():
+        store = get_conversation_store()
+        if not store.enabled:
+            return jsonify({"ok": False, "error": "MongoDB não configurado."}), 400
+
+        phone = request.args.get("phone")
+        target_id = request.args.get("target_id")
+        conversation_key = request.args.get("conversation_key")
+        limit = int(request.args.get("limit") or 500)
+        skip = int(request.args.get("skip") or 0)
+
+        if not any([phone, target_id, conversation_key]):
+            return jsonify(
+                {"ok": False, "error": "Informe phone, target_id ou conversation_key."}
+            ), 422
+
+        outcome = store.get_conversation(
+            phone=phone,
+            target_id=target_id,
+            conversation_key=conversation_key,
+            limit=limit,
+            skip=skip,
+        )
+        status = 200 if outcome.get("ok") else 404
+        return jsonify(outcome), status
+
+    @app.post("/api/conversations/read")
+    def conversations_read():
+        if not app.config["ENV_LOADED"]:
+            return jsonify({"ok": False, "error": "Variáveis de ambiente não carregadas."}), 400
+
+        data = _parse_conversations_read_payload(default_targets=app.config["DEFAULT_TARGETS"])
+        targets_file = resolve_project_path(Path(data["targets"]))
+
+        try:
+            config = app.config["APP_CONFIG"]
+            outcome = run_automation_coroutine(
+                execute_read_conversations_job(
+                    Path(app.config["ENV_FILE"]),
+                    targets_path=targets_file,
+                    target_ids=data["target_ids"],
+                    phones=data["phones"],
+                    scrolls=data["scrolls"],
+                ),
+                timeout=automation_job_timeout(config, heavy=True),
+            )
+        except RuntimeError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 422
+        except TimeoutError:
+            return jsonify({"ok": False, "error": "Tempo esgotado ao ler conversas."}), 504
+
+        if outcome.get("busy"):
+            return jsonify(outcome), 409
+        if outcome.get("requires_qr"):
+            return jsonify(outcome), 403
+
+        status = 200 if outcome.get("ok") else 422
+        return jsonify(outcome), status
+
+    @app.post("/api/conversations/preview")
+    def conversations_preview():
+        if not app.config["ENV_LOADED"]:
+            return jsonify({"ok": False, "error": "Variáveis de ambiente não carregadas."}), 400
+
+        data = _parse_conversations_read_payload(default_targets=app.config["DEFAULT_TARGETS"])
+        targets_file = resolve_project_path(Path(data["targets"]))
+
+        try:
+            config = app.config["APP_CONFIG"]
+            outcome = run_automation_coroutine(
+                execute_preview_conversation_job(
+                    Path(app.config["ENV_FILE"]),
+                    targets_path=targets_file,
+                    target_ids=data["target_ids"],
+                    phones=data["phones"],
+                    scrolls=data["scrolls"],
+                ),
+                timeout=automation_job_timeout(config, heavy=True),
+            )
+        except RuntimeError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 422
+        except TimeoutError:
+            return jsonify({"ok": False, "error": "Tempo esgotado ao ler a conversa."}), 504
+
+        if outcome.get("busy"):
+            return jsonify(outcome), 409
+        if outcome.get("requires_qr"):
+            return jsonify(outcome), 403
+
+        status = 200 if outcome.get("ok") else 422
+        return jsonify(outcome), status
+
+    @app.post("/api/conversations/save")
+    def conversations_save():
+        payload = request.get_json(silent=True) or {}
+        if not isinstance(payload, dict):
+            return jsonify({"ok": False, "error": "Corpo JSON inválido."}), 400
+
+        messages = payload.get("messages") or []
+        if not isinstance(messages, list):
+            return jsonify({"ok": False, "error": "messages deve ser uma lista."}), 422
+
+        outcome = save_selected_conversation_messages(
+            phone=payload.get("phone"),
+            target_id=payload.get("target_id"),
+            target_name=payload.get("target_name"),
+            target_type=str(payload.get("target_type") or "phone"),
+            messages=messages,
+        )
         status = 200 if outcome.get("ok") else 422
         return jsonify(outcome), status
 

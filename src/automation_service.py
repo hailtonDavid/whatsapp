@@ -17,9 +17,13 @@ from playwright.async_api import BrowserContext, Page, Playwright
 from browser_service import initialize_browser, wait_for_login_element
 from playwright_lifecycle import drain_event_loop_subprocesses, shutdown_playwright_stack
 from session_state import SessionState, resolve_session_state, wait_for_stable_session_state
+from conversation_store import ConversationStore, conversation_key_for, get_conversation_store
 from whatsapp_auto_downloader import (
     AppConfig,
+    Target,
+    TargetsConfig,
     build_groups_targets_json,
+    collect_messages_for_target,
     extract_whatsapp_contacts,
     extract_whatsapp_groups,
     find_playwright_chromium_processes_windows,
@@ -31,11 +35,14 @@ from whatsapp_auto_downloader import (
     merge_contacts_into_targets,
     merge_groups_into_targets,
     normalize_phone_digits,
+    open_chat_by_name,
+    open_target,
     open_whatsapp,
     remove_lock_files,
     resolve_project_path,
     run_send_once,
     safe_id,
+    SCROLL_CHAT_BOTTOM_JS,
 )
 
 _job_lock = asyncio.Lock()
@@ -1193,6 +1200,397 @@ async def execute_list_groups_job(
             return response
         finally:
             await release_whatsapp_operation(connection, env_file)
+
+
+def build_phone_target(phone: str, *, name: str | None = None, target_id: str | None = None) -> Target:
+    digits = normalize_phone_digits(phone)
+    if not digits:
+        raise ValueError(f"Telefone inválido: {phone}")
+    resolved_id = safe_id(target_id or f"numero_{digits}")
+    return Target(
+        id=resolved_id,
+        type="phone",
+        phone=digits,
+        name=name,
+        enabled=True,
+    )
+
+
+def resolve_read_targets(
+    targets_path: Path,
+    *,
+    target_ids: list[str] | None = None,
+    phones: list[str] | None = None,
+) -> list[Target]:
+    """Resolve alvos para leitura de conversa a partir de IDs ou números."""
+    selected_ids = {safe_id(item) for item in (target_ids or []) if item}
+    targets_by_id: dict[str, Target] = {}
+
+    if targets_path.is_file():
+        for target in load_targets_config(targets_path).targets:
+            if target.type == "phone":
+                targets_by_id[target.id] = target
+
+    resolved: list[Target] = []
+    seen_keys: set[str] = set()
+
+    for raw_id in selected_ids:
+        target = targets_by_id.get(raw_id)
+        if target is None:
+            phone_guess = raw_id.replace("numero_", "")
+            if normalize_phone_digits(phone_guess):
+                target = build_phone_target(phone_guess, target_id=raw_id)
+            else:
+                continue
+        key = conversation_key_for(phone=target.phone, target_id=target.id)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        resolved.append(target)
+
+    for raw_phone in phones or []:
+        try:
+            target = build_phone_target(str(raw_phone))
+        except ValueError:
+            continue
+        existing = targets_by_id.get(target.id)
+        if existing:
+            target = existing
+        key = conversation_key_for(phone=target.phone, target_id=target.id)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        resolved.append(target)
+
+    return resolved
+
+
+def resolve_single_read_target(
+    targets_path: Path,
+    *,
+    target_ids: list[str] | None = None,
+    phones: list[str] | None = None,
+) -> Target:
+    """Exige exatamente um alvo para leitura/preview de conversa."""
+    cleaned_phones = [str(item) for item in (phones or []) if item]
+    cleaned_ids = [str(item) for item in (target_ids or []) if item]
+
+    if len(cleaned_phones) == 1:
+        targets = resolve_read_targets(targets_path, phones=[cleaned_phones[0]])
+    elif len(cleaned_ids) == 1:
+        targets = resolve_read_targets(targets_path, target_ids=[cleaned_ids[0]])
+    else:
+        targets = resolve_read_targets(targets_path, target_ids=cleaned_ids, phones=cleaned_phones)
+
+    if not targets:
+        raise ValueError("Selecione um número válido para ler a conversa.")
+    if len(targets) > 1:
+        raise ValueError("Selecione apenas um número por vez para ler a conversa.")
+    return targets[0]
+
+
+async def _read_messages_from_whatsapp(
+    page: Page,
+    target: Target,
+    *,
+    scrolls: int,
+    delay: float,
+) -> tuple[bool, str | None, list[dict[str, Any]]]:
+    opened, open_error = await open_target(page, target)
+    if not opened:
+        return False, open_error or "Não abriu a conversa.", []
+
+    await page.wait_for_timeout(3500)
+    await page.evaluate(SCROLL_CHAT_BOTTOM_JS)
+    await page.wait_for_timeout(1500)
+
+    messages = await collect_messages_for_target(
+        page=page,
+        target=target,
+        scrolls=max(1, scrolls),
+        delay=delay,
+    )
+
+    if not messages and target.name:
+        opened_by_name, name_error = await open_chat_by_name(page, target.name)
+        if opened_by_name:
+            await page.wait_for_timeout(3500)
+            await page.evaluate(SCROLL_CHAT_BOTTOM_JS)
+            await page.wait_for_timeout(1500)
+            messages = await collect_messages_for_target(
+                page=page,
+                target=target,
+                scrolls=max(1, scrolls),
+                delay=delay,
+            )
+        elif not open_error:
+            open_error = name_error
+
+    if not messages:
+        await page.wait_for_timeout(2500)
+        await page.evaluate(SCROLL_CHAT_BOTTOM_JS)
+        messages = await collect_messages_for_target(
+            page=page,
+            target=target,
+            scrolls=max(1, scrolls),
+            delay=delay,
+        )
+
+    return True, None, messages
+
+
+def _annotate_messages_with_saved_state(
+    messages: list[dict[str, Any]],
+    saved_hashes: set[str],
+) -> list[dict[str, Any]]:
+    annotated: list[dict[str, Any]] = []
+    for msg in messages:
+        msg_hash = str(msg.get("hash") or "")
+        annotated.append(
+            {
+                **msg,
+                "saved_in_db": msg_hash in saved_hashes if msg_hash else False,
+            }
+        )
+    return annotated
+
+
+async def execute_preview_conversation_job(
+    env_file: Path,
+    *,
+    targets_path: Path,
+    target_ids: list[str] | None = None,
+    phones: list[str] | None = None,
+    scrolls: int | None = None,
+    store: ConversationStore | None = None,
+) -> dict[str, Any]:
+    """Lê mensagens de um número no WhatsApp Web sem gravar no MongoDB."""
+    conversation_store = store or get_conversation_store()
+    resolved_targets_path = resolve_project_path(targets_path)
+
+    try:
+        target = resolve_single_read_target(
+            resolved_targets_path,
+            target_ids=target_ids,
+            phones=phones,
+        )
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+
+    if _job_lock.locked():
+        return {
+            "ok": False,
+            "error": "Já existe um job em andamento. Tente novamente em instantes.",
+            "busy": True,
+        }
+
+    async with _job_lock:
+        if resolved_targets_path.is_file():
+            targets_config = load_targets_config(resolved_targets_path)
+        else:
+            targets_config = TargetsConfig()
+        effective_scrolls = scrolls if scrolls is not None else targets_config.scrolls_per_target
+        delay = targets_config.delay_between_scrolls
+
+        connection = await connect_whatsapp_for_operation(env_file)
+        if isinstance(connection, dict):
+            return connection
+
+        page = connection.page
+        try:
+            ok, error, messages = await _read_messages_from_whatsapp(
+                page,
+                target,
+                scrolls=effective_scrolls,
+                delay=delay,
+            )
+            if not ok:
+                return {
+                    "ok": False,
+                    "error": error,
+                    "target_id": target.id,
+                    "phone": target.phone,
+                }
+
+            key = conversation_key_for(phone=target.phone, target_id=target.id)
+            saved_hashes: set[str] = set()
+            if conversation_store.enabled:
+                saved_hashes = conversation_store.get_saved_hashes(key)
+
+            annotated = _annotate_messages_with_saved_state(messages, saved_hashes)
+            already_saved = sum(1 for msg in annotated if msg.get("saved_in_db"))
+            outcome: dict[str, Any] = {
+                "ok": True,
+                "preview": True,
+                "target_id": target.id,
+                "phone": target.phone,
+                "target_name": target.name,
+                "conversation_key": key,
+                "captured_messages": len(annotated),
+                "already_saved_count": already_saved,
+                "mongodb_configured": conversation_store.enabled,
+                "messages": annotated,
+            }
+            if not annotated:
+                outcome["warning"] = (
+                    "A conversa foi aberta, mas nenhuma mensagem visível foi capturada. "
+                    "Confirme se o WhatsApp está conectado e se há histórico neste chat."
+                )
+            return outcome
+        finally:
+            await release_whatsapp_operation(connection, env_file)
+
+
+def save_selected_conversation_messages(
+    *,
+    phone: str | None = None,
+    target_id: str | None = None,
+    target_name: str | None = None,
+    target_type: str = "phone",
+    messages: list[dict[str, Any]],
+    store: ConversationStore | None = None,
+) -> dict[str, Any]:
+    """Grava no MongoDB apenas as mensagens escolhidas pelo usuário."""
+    conversation_store = store or get_conversation_store()
+    if not conversation_store.enabled:
+        return {"ok": False, "error": "MongoDB não configurado. Defina MONGODB_URI no .env."}
+
+    ping = conversation_store.ping()
+    if not ping.get("ok"):
+        return {"ok": False, "error": ping.get("error")}
+
+    if not messages:
+        return {"ok": False, "error": "Nenhuma mensagem selecionada para salvar."}
+
+    key = conversation_key_for(phone=phone, target_id=target_id)
+    resolved_target_id = safe_id(target_id or f"numero_{normalize_phone_digits(phone or '')}")
+    stats = conversation_store.save_conversation_messages(
+        conversation_key=key,
+        target_id=resolved_target_id,
+        target_type=target_type,
+        phone=normalize_phone_digits(phone or "") or None,
+        target_name=target_name,
+        messages=messages,
+    )
+    return {
+        "ok": True,
+        "conversation_key": key,
+        "saved_count": len(messages),
+        **stats,
+        "mongodb": ping,
+    }
+
+
+async def execute_read_conversations_job(
+    env_file: Path,
+    *,
+    targets_path: Path,
+    target_ids: list[str] | None = None,
+    phones: list[str] | None = None,
+    scrolls: int | None = None,
+    store: ConversationStore | None = None,
+) -> dict[str, Any]:
+    """Lê conversas do WhatsApp Web e grava no MongoDB."""
+    conversation_store = store or get_conversation_store()
+    if not conversation_store.enabled:
+        return {
+            "ok": False,
+            "error": "MongoDB não configurado. Defina MONGODB_URI no .env.",
+            "results": [],
+        }
+
+    ping = conversation_store.ping()
+    if not ping.get("ok"):
+        return {"ok": False, "error": ping.get("error"), "results": []}
+
+    targets = resolve_read_targets(
+        resolve_project_path(targets_path),
+        target_ids=target_ids,
+        phones=phones,
+    )
+    if not targets:
+        return {
+            "ok": False,
+            "error": "Nenhum alvo válido. Informe target_ids ou phones.",
+            "results": [],
+        }
+
+    if _job_lock.locked():
+        return {
+            "ok": False,
+            "error": "Já existe um job em andamento. Tente novamente em instantes.",
+            "busy": True,
+            "results": [],
+        }
+
+    async with _job_lock:
+        bootstrap = load_env_before_browser(env_file)
+        resolved_targets_path = resolve_project_path(targets_path)
+        if resolved_targets_path.is_file():
+            targets_config = load_targets_config(resolved_targets_path)
+        else:
+            targets_config = TargetsConfig()
+        effective_scrolls = scrolls if scrolls is not None else targets_config.scrolls_per_target
+        delay = targets_config.delay_between_scrolls
+
+        connection = await connect_whatsapp_for_operation(env_file)
+        if isinstance(connection, dict):
+            return {**connection, "results": []}
+
+        page = connection.page
+        results: list[dict[str, Any]] = []
+
+        try:
+            for target in targets:
+                item: dict[str, Any] = {
+                    "target_id": target.id,
+                    "phone": target.phone,
+                    "target_name": target.name,
+                }
+                try:
+                    ok, open_error, messages = await _read_messages_from_whatsapp(
+                        page,
+                        target,
+                        scrolls=effective_scrolls,
+                        delay=delay,
+                    )
+                    if not ok:
+                        item.update({"ok": False, "error": open_error or "Não abriu a conversa."})
+                        results.append(item)
+                        continue
+
+                    key = conversation_key_for(phone=target.phone, target_id=target.id)
+                    save_stats = conversation_store.save_conversation_messages(
+                        conversation_key=key,
+                        target_id=target.id,
+                        target_type=target.type,
+                        phone=target.phone,
+                        target_name=target.name,
+                        messages=messages,
+                    )
+                    item.update(
+                        {
+                            "ok": True,
+                            "conversation_key": key,
+                            "captured_messages": len(messages),
+                            **save_stats,
+                        }
+                    )
+                except Exception as exc:
+                    item.update({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+                results.append(item)
+                await page.wait_for_timeout(int(targets_config.delay_between_targets * 1000))
+        finally:
+            await release_whatsapp_operation(connection, env_file)
+
+        successes = sum(1 for row in results if row.get("ok"))
+        return {
+            "ok": successes > 0,
+            "total": len(results),
+            "successes": successes,
+            "results": results,
+            "mongodb": ping,
+        }
 
 
 async def execute_sync_contacts_job(

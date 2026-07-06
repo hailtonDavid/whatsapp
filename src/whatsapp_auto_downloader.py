@@ -1941,7 +1941,7 @@ READ_MESSAGES_JS = """
 
     const getText = (el) => {
         const nodes = Array.from(el.querySelectorAll(
-            "span.selectable-text.copyable-text, span.selectable-text, span[dir='ltr'], span[dir='auto']"
+            "span.selectable-text.copyable-text, span.selectable-text, span[dir='ltr'], span[dir='auto'], span[data-testid='selectable-text']"
         ));
 
         const texts = nodes
@@ -1954,11 +1954,11 @@ READ_MESSAGES_JS = """
     };
 
     const primary = Array.from(document.querySelectorAll(
-        "div.copyable-text[data-pre-plain-text], div[data-pre-plain-text]"
+        "div.copyable-text[data-pre-plain-text], div[data-pre-plain-text], [data-testid='msg-container']"
     ));
 
     const fallback = Array.from(document.querySelectorAll(
-        "div.message-in, div.message-out"
+        "div.message-in, div.message-out, [data-testid='conversation-panel-messages'] div[role='row']"
     ));
 
     const all = [...primary, ...fallback];
@@ -2011,6 +2011,46 @@ READ_MESSAGES_JS = """
     }
 
     return messages.sort((a, b) => a.y - b.y);
+}
+"""
+
+
+SCROLL_CHAT_BOTTOM_JS = """
+() => {
+    const hasMessages = (el) => {
+        try {
+            return el.querySelectorAll(
+                "div.copyable-text[data-pre-plain-text], div[data-pre-plain-text], div.message-in, div.message-out, [data-testid='msg-container']"
+            ).length > 0;
+        } catch {
+            return false;
+        }
+    };
+
+    const candidates = Array.from(document.querySelectorAll("div"))
+        .filter(el => {
+            const r = el.getBoundingClientRect();
+            const s = window.getComputedStyle(el);
+            return r.width > window.innerWidth * 0.35 &&
+                   r.height > window.innerHeight * 0.30 &&
+                   r.x > window.innerWidth * 0.20 &&
+                   el.scrollHeight > el.clientHeight + 20 &&
+                   s.overflowY !== "hidden" &&
+                   hasMessages(el);
+        })
+        .sort((a, b) => {
+            const ar = a.getBoundingClientRect();
+            const br = b.getBoundingClientRect();
+            return (br.width * br.height) - (ar.width * ar.height);
+        });
+
+    const panel = candidates[0];
+    if (!panel) {
+        return { ok: false, reason: "painel_do_chat_nao_encontrado" };
+    }
+
+    panel.scrollTop = panel.scrollHeight;
+    return { ok: true, scrollTop: panel.scrollTop, scrollHeight: panel.scrollHeight };
 }
 """
 
