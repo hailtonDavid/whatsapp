@@ -16,7 +16,12 @@ if ([string]::IsNullOrWhiteSpace($Branch)) {
   $Branch = (& git rev-parse --abbrev-ref HEAD).Trim()
 }
 
-Write-Host ("[Git] git push origin {0} (GitHub + Gitea) ..." -f $Branch) -ForegroundColor Cyan
+Write-Host ("[Git] git push origin {0} (GitHub) ..." -f $Branch) -ForegroundColor Cyan
 & git push origin $Branch
-if ($LASTEXITCODE -ne 0) { throw ("Push falhou (codigo {0})." -f $LASTEXITCODE) }
+if ($LASTEXITCODE -ne 0) { throw ("Push GitHub falhou (codigo {0})." -f $LASTEXITCODE) }
+
+Write-Host ("[Git] git push gitea {0} (Gitea) ..." -f $Branch) -ForegroundColor Cyan
+& git push gitea $Branch
+if ($LASTEXITCODE -ne 0) { throw ("Push Gitea falhou (codigo {0})." -f $LASTEXITCODE) }
+
 Write-Host "[Git] Push concluido em GitHub e Gitea." -ForegroundColor Green

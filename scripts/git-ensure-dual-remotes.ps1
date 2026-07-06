@@ -35,8 +35,8 @@ if ($names -contains "gitea") {
   & git remote add gitea $defaultGitea
 }
 
+# origin: apenas GitHub (evita push duplo e conflito non-fast-forward no Gitea)
 & git remote set-url origin $defaultGithub
-& git remote set-url --add --push origin $defaultGithub
-& git remote set-url --add --push origin $defaultGitea
+& git remote set-url --push origin $defaultGithub
 
-W "[Git] origin: fetch GitHub; push GitHub + Gitea. Remote gitea OK."
+W "[Git] origin -> GitHub. gitea -> Gitea local."
