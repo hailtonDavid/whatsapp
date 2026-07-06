@@ -546,6 +546,19 @@
           <div class="list-box" id="conversation-preview-list"></div>
         </div>
 
+        <div class="subhead">Busca semântica (pgvector)</div>
+        <p class="hint" id="semantic-status">Configure SEMANTIC_DB_URI no .env (PostgreSQL + pgvector).</p>
+        <label for="semantic-query">Pergunta ou tema (ex.: boleto, prazo de entrega, desconto)</label>
+        <input type="text" id="semantic-query" placeholder="Buscar mensagens por significado...">
+        <div class="row">
+          <button type="button" class="btn primary" id="btn-semantic-search">Buscar mensagens</button>
+          <button type="button" class="btn" id="btn-semantic-reindex">Reindexar conversa salva</button>
+        </div>
+        <div class="list-meta" id="semantic-search-meta"></div>
+        <div class="list-box" id="semantic-search-results">
+          <span class="hint">Salve mensagens no MongoDB; elas são indexadas para busca semântica.</span>
+        </div>
+
         <div class="row">
           <button type="button" class="btn primary" id="btn-save-phones" disabled>Salvar seleção</button>
           <button type="button" class="btn" id="btn-save-phone-edits" disabled>Salvar alterações nos números</button>
@@ -1101,6 +1114,50 @@
       return selected;
     }
 
+    async function refreshSemanticStatus() {
+      try {
+        const res = await fetch("/api/semantic/status");
+        const data = await res.json();
+        const el = document.getElementById("semantic-status");
+        if (data.ok) {
+          el.textContent = `pgvector conectado · ${data.indexed_messages ?? 0} mensagens indexadas · provider ${data.embedding_provider}`;
+        } else if (!data.configured) {
+          el.textContent = "Configure SEMANTIC_DB_URI no .env (PostgreSQL + pgvector).";
+        } else {
+          el.textContent = `Busca semântica: ${data.error || "indisponível"}`;
+        }
+      } catch {
+        document.getElementById("semantic-status").textContent = "Não foi possível verificar a busca semântica.";
+      }
+    }
+
+    function renderSemanticResults(data) {
+      const meta = document.getElementById("semantic-search-meta");
+      const list = document.getElementById("semantic-search-results");
+      if (!data?.ok) {
+        meta.textContent = "";
+        list.innerHTML = `<span class="hint">${escapeHtml(data?.error || "Busca falhou.")}</span>`;
+        return;
+      }
+      meta.textContent = `${data.total} resultado(s) para "${data.query}"`;
+      if (!data.results?.length) {
+        list.innerHTML = '<span class="hint">Nenhuma mensagem similar encontrada. Tente reindexar ou salvar mais mensagens.</span>';
+        return;
+      }
+      list.innerHTML = data.results.map(row => {
+        const score = Math.round((row.score || 0) * 100);
+        const who = escapeHtml(row.target_name || row.phone || row.conversation_key || "");
+        const text = escapeHtml(row.text || "");
+        const ts = escapeHtml(row.timestamp_text || "");
+        return `<div class="preview-message">
+          <div class="preview-message-body">
+            <small>${score}% similar · ${who}${ts ? " · " + ts : ""}</small>
+            <p>${text}</p>
+          </div>
+        </div>`;
+      }).join("");
+    }
+
     async function refreshMongoStatus() {
       try {
         const res = await fetch("/api/conversations/status");
@@ -1553,6 +1610,43 @@
           already_saved_count: conversationPreviewContext.messages.filter(m => m.saved_in_db).length,
         });
         refreshMongoStatus();
+        refreshSemanticStatus();
+      }
+    });
+
+    document.getElementById("btn-semantic-search").addEventListener("click", async () => {
+      const query = document.getElementById("semantic-query").value.trim();
+      if (!query) {
+        toast("Digite o que deseja buscar.", "err");
+        return;
+      }
+      const selection = resolveConversationReadSelection({ quiet: true });
+      const payload = { query, min_score: 0.35, limit: 25 };
+      if (selection?.phone) payload.phone = selection.phone;
+      else if (selection?.target_id) payload.target_id = selection.target_id;
+      const result = await api("/api/semantic/search", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      if (result.ok) {
+        renderSemanticResults(result.body);
+        toast(`${result.body.total || 0} mensagem(ns) encontrada(s).`);
+      }
+    });
+
+    document.getElementById("btn-semantic-reindex").addEventListener("click", async () => {
+      const selection = resolveConversationReadSelection();
+      if (!selection) return;
+      const payload = {};
+      if (selection.phone) payload.phone = selection.phone;
+      else payload.target_id = selection.target_id;
+      const result = await api("/api/semantic/reindex", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      if (result.ok) {
+        toast(`Reindexação: ${result.body.indexed ?? 0} mensagem(ns).`);
+        refreshSemanticStatus();
       }
     });
 
@@ -1592,6 +1686,7 @@
       }
     });
     refreshMongoStatus();
+    refreshSemanticStatus();
     document.getElementById("panel-url").textContent = window.location.origin + "/painel";
   </script>
 </body>

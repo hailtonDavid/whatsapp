@@ -233,6 +233,66 @@ Para (re)configurar os remotos:
 .\scripts\git-ensure-dual-remotes.ps1
 ```
 
+## Docker — stack completa (app + bancos)
+
+Sobe o painel Flask, MongoDB e PostgreSQL (pgvector) com um comando:
+
+```powershell
+.\rodar_docker.bat
+# ou
+docker compose up -d --build
+```
+
+| Serviço | URL / porta |
+|---------|-------------|
+| Painel | http://127.0.0.1:5014/painel |
+| MongoDB | `mongodb://127.0.0.1:27020/whatsapp` |
+| PostgreSQL | `postgresql://whatsapp:whatsapp@127.0.0.1:5434/whatsapp` |
+
+Parar tudo: `.\parar_docker.bat` ou `docker compose down`.
+
+Configuração opcional: copie `.env.docker.example` para `.env.docker` (criado automaticamente pelo `rodar_docker.bat`).
+
+Volumes persistentes: perfil WhatsApp, exports, state, cache de embeddings, dados dos bancos.
+
+> **WhatsApp Web no container:** o Playwright usa Chromium embutido (`WA_BROWSER_CHANNEL=none`). A sessão fica no volume `whatsapp_profile`. Na primeira execução, conecte via QR no painel (Autenticação). Em alguns ambientes headless o QR pode exigir `WA_HEADLESS=false` temporariamente — ajuste em `.env.docker` e recrie o container.
+
+### Apenas bancos (desenvolvimento local)
+
+Se preferir rodar o Flask no Windows (`.\rodar_flask.bat`) e só os bancos no Docker:
+
+```powershell
+docker compose up -d mongo postgres
+# ou
+.\rodar_mongo.bat
+```
+
+No `.env` local:
+
+```env
+MONGODB_URI=mongodb://localhost:27020/whatsapp
+MONGODB_DB=whatsapp
+SEMANTIC_DB_URI=postgresql://whatsapp:whatsapp@localhost:5434/whatsapp
+SEMANTIC_EMBEDDING_PROVIDER=fastembed
+SEMANTIC_EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+SEMANTIC_EMBEDDING_DIM=384
+```
+
+> **Porta 27020** evita conflito com outros MongoDB locais (ex.: na 27017).
+
+Verifique no painel: status **MongoDB conectado** e **pgvector conectado**.
+
+### Busca semântica (PostgreSQL + pgvector)
+
+Mensagens salvas no MongoDB são indexadas com embeddings para busca por **significado** (ex.: “boleto”, “atraso na entrega”, “desconto”).
+
+API: `POST /api/semantic/search`, `POST /api/semantic/reindex`, `GET /api/semantic/status`.
+
+| Camada | Função |
+|--------|--------|
+| MongoDB (27020) | Armazenar mensagens escolhidas |
+| Postgres + pgvector (5434) | Busca semântica / RAG |
+
 ## Importante
 
 Use apenas em conta própria ou em ambiente com autorização explícita.

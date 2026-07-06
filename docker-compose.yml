@@ -1,0 +1,97 @@
+# Stack completa: painel Flask + MongoDB + PostgreSQL (pgvector)
+#
+# Subir tudo:
+#   docker compose up -d --build
+#
+# Painel: http://127.0.0.1:5014/painel
+#
+# Apenas bancos (desenvolvimento local com rodar_flask.bat):
+#   docker compose up -d mongo postgres
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: whatsapp-app
+    ports:
+      - "5014:5014"
+    env_file:
+      - path: .env.docker
+        required: false
+    environment:
+      FLASK_HOST: 0.0.0.0
+      FLASK_PORT: "5014"
+      FLASK_OPEN_BROWSER: "false"
+      WA_PROFILE_DIR: /data/profile
+      WA_EXPORT_DIR: /data/exports
+      WA_STATE_DIR: /data/state
+      WA_HEADLESS: "true"
+      WA_BROWSER_CHANNEL: none
+      MONGODB_URI: mongodb://mongo:27017/whatsapp
+      MONGODB_DB: whatsapp
+      SEMANTIC_DB_URI: postgresql://whatsapp:whatsapp@postgres:5432/whatsapp
+      SEMANTIC_EMBEDDING_PROVIDER: fastembed
+      SEMANTIC_EMBEDDING_DIM: "384"
+      FASTEMBED_CACHE_PATH: /data/cache/fastembed
+    volumes:
+      - whatsapp_profile:/data/profile
+      - whatsapp_exports:/data/exports
+      - whatsapp_state:/data/state
+      - whatsapp_cache:/data/cache
+      - ./config:/app/config
+    depends_on:
+      mongo:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    shm_size: "1gb"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:5014/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  mongo:
+    image: mongo:7
+    container_name: whatsapp-mongo
+    ports:
+      - "27020:27017"
+    volumes:
+      - whatsapp_mongo_data:/data/db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: whatsapp-postgres
+    ports:
+      - "5434:5432"
+    environment:
+      POSTGRES_USER: whatsapp
+      POSTGRES_PASSWORD: whatsapp
+      POSTGRES_DB: whatsapp
+    volumes:
+      - whatsapp_pg_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U whatsapp -d whatsapp"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  whatsapp_profile:
+  whatsapp_exports:
+  whatsapp_state:
+  whatsapp_cache:
+  whatsapp_mongo_data:
+  whatsapp_pg_data:

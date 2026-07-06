@@ -38,6 +38,7 @@ from automation_service import (
     stop_automation,
 )
 from conversation_store import get_conversation_store, load_mongo_settings
+from semantic_store import get_semantic_store, load_semantic_settings, reindex_conversation_from_store
 from wa_selectors import WHATSAPP_LOGIN_SELECTOR
 from whatsapp_auto_downloader import WA_URL, load_app_config, resolve_project_path
 
@@ -49,7 +50,7 @@ DEFAULT_GROUPS_OUTPUT = "exports/groups/groups.json"
 DEFAULT_GROUPS_TARGETS = "exports/groups/groups_targets_template.json"
 DEFAULT_CONTACTS_OUTPUT = "exports/contacts/contacts.json"
 DASHBOARD_PATH = TEMPLATES_DIR / DASHBOARD_TEMPLATE
-APP_UI_VERSION = "2026.07.06-conversas"
+APP_UI_VERSION = "2026.07.06-semantic"
 
 
 def _load_dashboard_html() -> str:
@@ -243,6 +244,9 @@ def create_app(
                     "conversations_get": "GET /api/conversations",
                     "conversations_list": "GET /api/conversations/list",
                     "conversations_status": "GET /api/conversations/status",
+                    "semantic_status": "GET /api/semantic/status",
+                    "semantic_search": "POST /api/semantic/search",
+                    "semantic_reindex": "POST /api/semantic/reindex",
                     "groups_generate": "POST /api/groups/generate",
                     "groups_last": "/api/groups/last",
                     "groups_targets_template": "/api/groups/targets-template",
@@ -954,6 +958,57 @@ def create_app(
             messages=messages,
         )
         status = 200 if outcome.get("ok") else 422
+        return jsonify(outcome), status
+
+    @app.get("/api/semantic/status")
+    def semantic_status():
+        settings = load_semantic_settings()
+        store = get_semantic_store()
+        ping = store.ping() if store.enabled else {"ok": False, "error": "SEMANTIC_DB_URI não configurada."}
+        return jsonify(
+            {
+                "configured": bool(settings.uri),
+                "embedding_dim": settings.embedding_dim,
+                **ping,
+            }
+        ), 200
+
+    @app.post("/api/semantic/search")
+    def semantic_search():
+        payload = request.get_json(silent=True) or {}
+        if not isinstance(payload, dict):
+            return jsonify({"ok": False, "error": "Corpo JSON inválido."}), 400
+
+        store = get_semantic_store()
+        if not store.enabled:
+            return jsonify({"ok": False, "error": "SEMANTIC_DB_URI não configurada."}), 400
+
+        query = str(payload.get("query") or payload.get("q") or "").strip()
+        limit = int(payload.get("limit") or 20)
+        min_score = float(payload.get("min_score") or 0.35)
+        outcome = store.search(
+            query=query,
+            phone=payload.get("phone"),
+            target_id=payload.get("target_id"),
+            conversation_key=payload.get("conversation_key"),
+            limit=limit,
+            min_score=min_score,
+        )
+        status = 200 if outcome.get("ok") else 422
+        return jsonify(outcome), status
+
+    @app.post("/api/semantic/reindex")
+    def semantic_reindex():
+        payload = request.get_json(silent=True) or {}
+        if not isinstance(payload, dict):
+            return jsonify({"ok": False, "error": "Corpo JSON inválido."}), 400
+
+        outcome = reindex_conversation_from_store(
+            phone=payload.get("phone"),
+            target_id=payload.get("target_id"),
+            conversation_key=payload.get("conversation_key"),
+        )
+        status = 200 if outcome.get("ok") is not False and "error" not in outcome else 422
         return jsonify(outcome), status
 
     return app

@@ -18,6 +18,7 @@ from browser_service import initialize_browser, wait_for_login_element
 from playwright_lifecycle import drain_event_loop_subprocesses, shutdown_playwright_stack
 from session_state import SessionState, resolve_session_state, wait_for_stable_session_state
 from conversation_store import ConversationStore, conversation_key_for, get_conversation_store
+from semantic_store import index_messages_for_search
 from whatsapp_auto_downloader import (
     AppConfig,
     Target,
@@ -1504,12 +1505,20 @@ def save_selected_conversation_messages(
         target_name=target_name,
         messages=messages,
     )
+    semantic_stats = index_messages_for_search(
+        phone=phone,
+        target_id=target_id,
+        target_name=target_name,
+        target_type=target_type,
+        messages=messages,
+    )
     return {
         "ok": True,
         "conversation_key": key,
         "saved_count": len(messages),
         **stats,
         "mongodb": ping,
+        "semantic": semantic_stats,
     }
 
 

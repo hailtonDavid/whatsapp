@@ -114,3 +114,15 @@ Icon?
 *.bak
 *.old
 *.orig
+*.zip
+*.7z
+*.rar
+*.tar
+*.gz
+*.bz2
+*.xz
+*.iso
+*.dmg
+*.pkg
+*.deb
+*.rpm
