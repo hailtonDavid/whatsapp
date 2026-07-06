@@ -129,6 +129,12 @@ async def _detect_state_via_js(page: Page) -> SessionState | None:
 
 async def detect_whatsapp_session_state(page: Page, *, timeout_ms: int = 8_000) -> SessionState:
     """Classifica a tela atual: logado, QR/login ou indeterminado."""
+    try:
+        if page.is_closed():
+            return "unknown"
+    except Exception:
+        return "unknown"
+
     js_state = await _detect_state_via_js(page)
     if js_state in ("logged_in", "login_qr"):
         return js_state
@@ -150,10 +156,21 @@ async def wait_for_stable_session_state(
     timeout_ms: int = 30_000,
 ) -> SessionState:
     """Aguarda sair de 'unknown' dentro do tempo limite."""
+    try:
+        if page.is_closed():
+            return "unknown"
+    except Exception:
+        return "unknown"
+
     loop = asyncio.get_event_loop()
     deadline = loop.time() + (timeout_ms / 1000)
     state: SessionState = "unknown"
     while loop.time() < deadline:
+        try:
+            if page.is_closed():
+                return "unknown"
+        except Exception:
+            return "unknown"
         state = await detect_whatsapp_session_state(page, timeout_ms=3_000)
         if state != "unknown":
             return state

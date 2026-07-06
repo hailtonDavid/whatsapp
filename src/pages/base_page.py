@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from playwright.async_api import Locator, Page
+from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from wa_selectors import WA_URL
@@ -36,6 +37,8 @@ class SelectorGroup:
                 return locator
             except PlaywrightTimeoutError:
                 continue
+            except PlaywrightError:
+                return None
         return None
 
     async def first_attached(self, page: Page, *, timeout_ms: int = 5_000) -> Locator | None:
@@ -50,6 +53,8 @@ class SelectorGroup:
                 return locator
             except PlaywrightTimeoutError:
                 continue
+            except PlaywrightError:
+                return None
         return None
 
 

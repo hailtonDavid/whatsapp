@@ -249,7 +249,11 @@
       width: 100%;
     }
     .phone-edit-row {
-      grid-template-columns: auto 1fr 1fr;
+      grid-template-columns: auto auto 1fr 1fr;
+    }
+    .phone-read-radio {
+      margin: 0;
+      accent-color: var(--accent);
     }
     .group-edit-row {
       grid-template-columns: auto minmax(120px, 1fr) minmax(140px, 1.6fr);
@@ -520,7 +524,7 @@
 
         <div class="subhead">Conversas (MongoDB)</div>
         <p class="hint" id="mongo-status">Configure MONGODB_URI no .env para gravar conversas.</p>
-        <p class="hint">Filtre ou selecione <strong>um número</strong>, clique em <strong>Ler mensagens</strong> e marque o que deseja salvar.</p>
+        <p class="hint">Marque o círculo <strong>Ler</strong> ao lado do número (independente dos checkboxes de envio), clique em <strong>Ler mensagens</strong> e escolha o que salvar.</p>
         <div class="list-meta" id="conversation-read-target">Nenhum número definido para leitura.</div>
         <label for="conversation-scrolls">Rolagens ao ler histórico</label>
         <input type="text" id="conversation-scrolls" value="8" inputmode="numeric">
@@ -966,6 +970,7 @@
     }
 
     let conversationPreviewContext = null;
+    let conversationReadTargetId = null;
 
     function getFilteredPhones() {
       const filter = document.getElementById("phones-search").value.trim().toLowerCase();
@@ -986,25 +991,40 @@
 
     function resolveConversationReadSelection({ quiet = false } = {}) {
       syncPhoneEditsFromDom();
+
+      if (conversationReadTargetId) {
+        const p = (loadedPhones || []).find(item => item.id === conversationReadTargetId);
+        if (p) {
+          const phone = (phoneEdits[p.id]?.phone || p.phone || "").trim();
+          return {
+            target_id: p.id,
+            phone: phone || null,
+            label: phone || p.name || p.id,
+          };
+        }
+      }
+
       const visible = getFilteredPhones();
       const visibleSelected = visible.filter(p => phoneEdits[p.id]?.enabled);
 
       if (visibleSelected.length === 1) {
         const p = visibleSelected[0];
+        conversationReadTargetId = p.id;
         const phone = (phoneEdits[p.id]?.phone || p.phone || "").trim();
         return {
-          target_ids: [p.id],
-          phones: phone ? [phone] : [],
+          target_id: p.id,
+          phone: phone || null,
           label: phone || p.name || p.id,
         };
       }
 
       if (visible.length === 1) {
         const p = visible[0];
+        conversationReadTargetId = p.id;
         const phone = (phoneEdits[p.id]?.phone || p.phone || "").trim();
         return {
-          target_ids: [p.id],
-          phones: phone ? [phone] : [],
+          target_id: p.id,
+          phone: phone || null,
           label: phone || p.name || p.id,
         };
       }
@@ -1012,19 +1032,16 @@
       const target_ids = selectedPhoneIds();
       const phones = selectedPhoneNumbers();
       if (target_ids.length === 1) {
+        conversationReadTargetId = target_ids[0];
         return {
-          target_ids,
-          phones,
+          target_id: target_ids[0],
+          phone: phones[0] || null,
           label: phones[0] || target_ids[0],
         };
       }
 
       if (!quiet) {
-        if (target_ids.length > 1) {
-          toast("Para ler conversas, filtre até um número ou deixe só um marcado.", "err");
-        } else {
-          toast("Selecione ou filtre um número para ler as mensagens.", "err");
-        }
+        toast("Marque o círculo Ler ao lado do número desejado (ou filtre até restar um).", "err");
       }
       return null;
     }
@@ -1058,7 +1075,7 @@
         const checked = saved ? "" : "checked";
         const disabled = saved ? "disabled" : "";
         const badge = saved ? '<span class="preview-badge">já salva</span>' : "";
-        const direction = msg.direction === "outgoing" ? "Enviada" : "Recebida";
+        const direction = (msg.direction === "outgoing" || msg.direction === "enviada") ? "Enviada" : "Recebida";
         const text = escapeHtml(msg.text || "(sem texto)");
         const sender = escapeHtml(msg.sender || "");
         const ts = escapeHtml(msg.timestamp_text || "");
@@ -1194,20 +1211,33 @@
       const totalPages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
       if (phonesPage >= totalPages) phonesPage = totalPages - 1;
       const pageItems = visible.slice(phonesPage * PAGE_SIZE, (phonesPage + 1) * PAGE_SIZE);
+      if (visible.length === 1) {
+        conversationReadTargetId = visible[0].id;
+      } else if (conversationReadTargetId && !visible.some(p => p.id === conversationReadTargetId)) {
+        conversationReadTargetId = null;
+      }
       document.getElementById("phones-meta").textContent =
         `${loadedPhones.length} números · ${Object.values(phoneEdits).filter(e=>e.enabled).length} selecionados · pág. ${phonesPage+1}/${totalPages}`;
       list.innerHTML = pageItems.length ? pageItems.map(p => {
         const edit = phoneEdits[p.id] || {};
+        const readChecked = conversationReadTargetId === p.id ? "checked" : "";
         return `<div class="target-item phone-item" data-name="${escapeHtml((p.phone||p.id||"").toLowerCase())}">
           <label class="phone-edit-row">
+            <input type="radio" name="conversation-read-target" class="phone-read-radio" value="${escapeHtml(p.id)}" title="Ler conversa deste número" ${readChecked}>
             <input type="checkbox" class="phone-checkbox" value="${escapeHtml(p.id)}" ${edit.enabled?"checked":""}>
             <input type="text" class="phone-edit-number" data-id="${escapeHtml(p.id)}" value="${escapeHtml(edit.phone||p.phone||"")}" placeholder="Telefone">
             <input type="text" class="phone-edit-message" data-id="${escapeHtml(p.id)}" value="${escapeHtml(edit.message||p.message||"")}" placeholder="Msg individual">
           </label>
-          <small>${escapeHtml(p.id)}${p.name?" · "+escapeHtml(p.name):""}</small>
+          <small>${escapeHtml(p.id)}${p.name?" · "+escapeHtml(p.name):""} · Ler</small>
         </div>`;
       }).join("") : '<span class="hint">Nenhum resultado no filtro.</span>';
       list.querySelectorAll(".phone-checkbox").forEach(el => el.addEventListener("change", updatePhonesSendSummary));
+      list.querySelectorAll(".phone-read-radio").forEach(el => el.addEventListener("change", (event) => {
+        if (event.target.checked) {
+          conversationReadTargetId = event.target.value;
+          updateConversationReadTargetHint();
+        }
+      }));
       document.getElementById("phones-pager").hidden = visible.length <= PAGE_SIZE;
       document.getElementById("phones-page-label").textContent = `Página ${phonesPage+1} de ${totalPages}`;
       document.getElementById("phones-prev").disabled = phonesPage <= 0;
@@ -1455,8 +1485,8 @@
         method: "POST",
         body: JSON.stringify({
           targets: phonesTargetsFile(),
-          target_ids: selection.target_ids,
-          phones: selection.phones,
+          phone: selection.phone,
+          target_id: selection.target_id,
           scrolls,
         }),
       });
@@ -1551,11 +1581,9 @@
     document.getElementById("btn-fetch-conversation").addEventListener("click", async () => {
       const selection = requireSinglePhoneSelection();
       if (!selection) return;
-      const phone = selection.phones[0];
-      const target_id = selection.target_ids[0];
       const qs = new URLSearchParams();
-      if (phone) qs.set("phone", phone);
-      else qs.set("target_id", target_id);
+      if (selection.phone) qs.set("phone", selection.phone);
+      else qs.set("target_id", selection.target_id);
       await api(`/api/conversations?${qs.toString()}`);
     });
     document.getElementById("btn-list-conversations").addEventListener("click", () => api("/api/conversations/list"));

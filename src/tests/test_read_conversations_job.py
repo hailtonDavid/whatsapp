@@ -31,15 +31,15 @@ def test_build_phone_target_normalizes_digits() -> None:
     assert target.phone == "62999000000"
 
 
-def test_resolve_single_read_target_requires_one(targets_file: Path) -> None:
+def test_resolve_single_read_target_uses_first_when_multiple(targets_file: Path) -> None:
     one = resolve_single_read_target(targets_file, target_ids=["numero_teste"])
     assert one.id == "numero_teste"
 
-    with pytest.raises(ValueError, match="apenas um"):
-        resolve_single_read_target(
-            targets_file,
-            phones=["5562999000000", "5511999999999"],
-        )
+    first = resolve_single_read_target(
+        targets_file,
+        phones=["5562999000000", "5511999999999"],
+    )
+    assert first.phone == "5562999000000"
 
 
 def test_save_selected_conversation_messages() -> None:

@@ -49,7 +49,7 @@ DEFAULT_GROUPS_OUTPUT = "exports/groups/groups.json"
 DEFAULT_GROUPS_TARGETS = "exports/groups/groups_targets_template.json"
 DEFAULT_CONTACTS_OUTPUT = "exports/contacts/contacts.json"
 DASHBOARD_PATH = TEMPLATES_DIR / DASHBOARD_TEMPLATE
-APP_UI_VERSION = "2026.05.25-painel"
+APP_UI_VERSION = "2026.07.06-conversas"
 
 
 def _load_dashboard_html() -> str:
@@ -141,6 +141,14 @@ def _parse_conversations_read_payload(*, default_targets: str) -> dict:
     elif not isinstance(phones, list):
         phones = [str(phones)]
 
+    single_phone = payload.get("phone")
+    if isinstance(single_phone, str) and single_phone.strip():
+        phones = [single_phone.strip()]
+
+    single_target_id = payload.get("target_id")
+    if isinstance(single_target_id, str) and single_target_id.strip():
+        target_ids = [single_target_id.strip()]
+
     scrolls = payload.get("scrolls")
     if scrolls is not None:
         scrolls = int(scrolls)
@@ -178,7 +186,11 @@ def create_app(
     app.config["DASHBOARD_HTML"] = _load_dashboard_html()
 
     def _serve_dashboard():
-        return Response(app.config["DASHBOARD_HTML"], mimetype="text/html; charset=utf-8")
+        return Response(
+            app.config["DASHBOARD_HTML"],
+            mimetype="text/html; charset=utf-8",
+            headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
+        )
 
     for ui_path in ("/", "/dashboard", "/painel", "/ui"):
         endpoint = f"ui_{ui_path.strip('/') or 'root'}"

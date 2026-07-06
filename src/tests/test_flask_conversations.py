@@ -58,17 +58,18 @@ def test_conversations_get_and_list(client) -> None:
     assert body["messages"][0]["text"] == "Mensagem salva"
 
 
-def test_conversations_preview_requires_single_target(client, targets_file) -> None:
+def test_conversations_preview_accepts_explicit_phone(client, targets_file) -> None:
     response = client.post(
         "/api/conversations/preview",
         json={
             "targets": targets_file.as_posix(),
-            "target_ids": [],
-            "phones": ["5562999000000", "5511999999999"],
+            "phone": "5562999000000",
+            "target_id": "numero_teste",
         },
     )
-    assert response.status_code == 422
-    assert "apenas um" in response.get_json()["error"].lower()
+    # Sem WhatsApp conectado nos testes, pode falhar por auth/busy — mas não por seleção múltipla.
+    body = response.get_json()
+    assert "apenas um" not in str(body.get("error", "")).lower()
 
 
 def test_conversations_save_selected(client) -> None:

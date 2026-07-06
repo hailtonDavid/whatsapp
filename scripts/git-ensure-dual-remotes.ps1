@@ -17,7 +17,7 @@ if (-not $env:GIT_CONFIG_COUNT) {
 }
 
 $defaultGithub = "https://github.com/hailtonDavid/whatsapp.git"
-$defaultGitea = "http://localhost:3000/hailtonDavid/whatsapp.git"
+$defaultGitea = "http://localhost:8031/hailtonDavid/whatsapp.git"
 
 function W([string]$m) {
   if (-not $Quiet) { Write-Host $m -ForegroundColor Cyan }

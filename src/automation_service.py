@@ -378,11 +378,12 @@ async def _ensure_whatsapp_authorized_unlocked(env_file: Path) -> dict[str, Any]
     global _held_session
 
     if _held_session is not None:
-        state = await wait_for_stable_session_state(
-            _held_session.page,
-            timeout_ms=_AUTH_PROBE_TIMEOUT_MS,
-        )
-        if state == "login_qr" and _held_session.bootstrap.config.headless:
+        state = await _probe_held_session_state()
+        if _held_session is None:
+            state = "unknown"
+        else:
+            _held_session.session_state = state
+        if state == "login_qr" and _held_session is not None and _held_session.bootstrap.config.headless:
             await _open_visible_held_session(env_file)
             state = _held_session.session_state or "login_qr"
         else:
@@ -465,6 +466,25 @@ async def _clear_held_session_if_stale() -> None:
         await drain_event_loop_subprocesses()
 
 
+async def _probe_held_session_state() -> SessionState:
+    """Lê estado da sessão ativa; descarta referência se o navegador foi fechado."""
+    global _held_session
+    if _held_session is None:
+        return "unknown"
+    try:
+        if _held_session.page.is_closed():
+            raise RuntimeError("held page closed")
+        return await wait_for_stable_session_state(
+            _held_session.page,
+            timeout_ms=_AUTH_PROBE_TIMEOUT_MS,
+        )
+    except Exception:
+        await shutdown_automation_session(_held_session)
+        _held_session = None
+        await drain_event_loop_subprocesses()
+        return "unknown"
+
+
 async def connect_whatsapp_for_operation(
     env_file: Path,
 ) -> WhatsAppOperation | dict[str, Any]:
@@ -474,44 +494,42 @@ async def connect_whatsapp_for_operation(
     await _clear_held_session_if_stale()
 
     if _held_session is not None:
-        state = await wait_for_stable_session_state(
-            _held_session.page,
-            timeout_ms=_AUTH_PROBE_TIMEOUT_MS,
-        )
-        _held_session.session_state = state
-        if not is_whatsapp_authorized(state):
-            if not _held_session.bootstrap.config.headless:
-                try:
-                    await _held_session.page.bring_to_front()
-                except Exception:
-                    pass
-            return {
-                "ok": False,
-                **auth_status_fields(
-                    state,
-                    session_active=True,
-                    headless=_held_session.bootstrap.config.headless,
-                ),
-                "message": _auth_failure_message(
-                    state,
-                    headless=_held_session.bootstrap.config.headless,
-                ),
-            }
+        state = await _probe_held_session_state()
+        if _held_session is not None:
+            _held_session.session_state = state
+            if not is_whatsapp_authorized(state):
+                if not _held_session.bootstrap.config.headless:
+                    try:
+                        await _held_session.page.bring_to_front()
+                    except Exception:
+                        pass
+                return {
+                    "ok": False,
+                    **auth_status_fields(
+                        state,
+                        session_active=True,
+                        headless=_held_session.bootstrap.config.headless,
+                    ),
+                    "message": _auth_failure_message(
+                        state,
+                        headless=_held_session.bootstrap.config.headless,
+                    ),
+                }
 
-        bootstrap = load_env_before_browser(env_file)
-        if bootstrap.config.headless and not _held_session.bootstrap.config.headless:
-            await shutdown_automation_session(_held_session)
-            _held_session = None
-            await drain_event_loop_subprocesses()
-        else:
-            return WhatsAppOperation(
-                bootstrap=_held_session.bootstrap,
-                playwright=_held_session.playwright,
-                context=_held_session.context,
-                page=_held_session.page,
-                session_state=state,
-                keep_browser_open=not bootstrap.config.headless,
-            )
+            bootstrap = load_env_before_browser(env_file)
+            if bootstrap.config.headless and not _held_session.bootstrap.config.headless:
+                await shutdown_automation_session(_held_session)
+                _held_session = None
+                await drain_event_loop_subprocesses()
+            else:
+                return WhatsAppOperation(
+                    bootstrap=_held_session.bootstrap,
+                    playwright=_held_session.playwright,
+                    context=_held_session.context,
+                    page=_held_session.page,
+                    session_state=state,
+                    keep_browser_open=not bootstrap.config.headless,
+                )
 
     bootstrap = load_env_before_browser(env_file)
     await release_browser_resources(env_file, unlock_profile=True)
@@ -580,7 +598,17 @@ async def start_automation(env_file: Path, *, headless: bool | None = None) -> A
     if headless is not None:
         bootstrap.config.headless = headless
     playwright, context, page = await initialize_browser(bootstrap.config)
-    state = await wait_for_stable_session_state(page, timeout_ms=_AUTH_PROBE_TIMEOUT_MS)
+    try:
+        state = await wait_for_stable_session_state(page, timeout_ms=_AUTH_PROBE_TIMEOUT_MS)
+    except Exception as exc:
+        await shutdown_playwright_stack(pages=[page], context=context, playwright=playwright)
+        msg = str(exc).lower()
+        if "closed" in msg or "target" in msg:
+            raise RuntimeError(
+                "O navegador fechou antes de carregar o WhatsApp Web. "
+                "Feche janelas antigas do Edge e use «Abrir visível (QR Code)»."
+            ) from exc
+        raise RuntimeError(f"Falha ao iniciar WhatsApp Web: {exc}") from exc
 
     return AutomationSession(
         bootstrap=bootstrap,
@@ -1270,22 +1298,27 @@ def resolve_single_read_target(
     *,
     target_ids: list[str] | None = None,
     phones: list[str] | None = None,
+    phone: str | None = None,
+    target_id: str | None = None,
 ) -> Target:
-    """Exige exatamente um alvo para leitura/preview de conversa."""
-    cleaned_phones = [str(item) for item in (phones or []) if item]
-    cleaned_ids = [str(item) for item in (target_ids or []) if item]
-
-    if len(cleaned_phones) == 1:
-        targets = resolve_read_targets(targets_path, phones=[cleaned_phones[0]])
-    elif len(cleaned_ids) == 1:
-        targets = resolve_read_targets(targets_path, target_ids=[cleaned_ids[0]])
+    """Resolve um único alvo para leitura/preview de conversa."""
+    if phone and str(phone).strip():
+        targets = resolve_read_targets(targets_path, phones=[str(phone).strip()])
+    elif target_id and str(target_id).strip():
+        targets = resolve_read_targets(targets_path, target_ids=[str(target_id).strip()])
     else:
-        targets = resolve_read_targets(targets_path, target_ids=cleaned_ids, phones=cleaned_phones)
+        cleaned_phones = [str(item) for item in (phones or []) if item]
+        cleaned_ids = [str(item) for item in (target_ids or []) if item]
+
+        if cleaned_phones:
+            targets = resolve_read_targets(targets_path, phones=[cleaned_phones[0]])
+        elif cleaned_ids:
+            targets = resolve_read_targets(targets_path, target_ids=[cleaned_ids[0]])
+        else:
+            targets = []
 
     if not targets:
         raise ValueError("Selecione um número válido para ler a conversa.")
-    if len(targets) > 1:
-        raise ValueError("Selecione apenas um número por vez para ler a conversa.")
     return targets[0]
 
 
@@ -1373,6 +1406,8 @@ async def execute_preview_conversation_job(
             resolved_targets_path,
             target_ids=target_ids,
             phones=phones,
+            phone=(phones[0] if phones and len(phones) == 1 else None),
+            target_id=(target_ids[0] if target_ids and len(target_ids) == 1 else None),
         )
     except ValueError as exc:
         return {"ok": False, "error": str(exc)}
