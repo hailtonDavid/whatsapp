@@ -417,7 +417,7 @@
   <header>
     <div>
       <h1>WhatsApp Automation</h1>
-      <p>Painel em <strong id="panel-url"></strong></p>
+      <p>Painel em <strong id="panel-url"></strong> · versão <strong id="panel-version">__APP_UI_VERSION__</strong></p>
     </div>
     <div class="badges" id="status-badges"><span class="badge">Carregando...</span></div>
   </header>
@@ -877,17 +877,14 @@
         const res = await fetch("/api/automation/status");
         const status = await res.json();
         renderBadges(status);
-        if (!options.skipAuthCheck && !authCheckAttempted && status.env_loaded && status.whatsapp_authorized !== true) {
-          authCheckAttempted = true;
+        const verEl = document.getElementById("panel-version");
+        if (verEl) {
           try {
-            await fetch("/api/automation/ensure-auth", { method: "POST" });
-            const next = await (await fetch("/api/automation/status")).json();
-            renderBadges(next);
-            if (next.whatsapp_authorized === true) {
-              switchTab("groups");
-              await loadGroupsList();
-            }
-          } catch { /* ignore */ }
+            const ver = await (await fetch("/api/version")).json();
+            verEl.textContent = ver.app_ui_version || "__APP_UI_VERSION__";
+          } catch {
+            verEl.textContent = "__APP_UI_VERSION__";
+          }
         }
       } catch {
         badges.innerHTML = '<span class="badge err">Sem conexão</span>';

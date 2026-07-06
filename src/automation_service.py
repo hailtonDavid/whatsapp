@@ -379,36 +379,33 @@ async def _ensure_whatsapp_authorized_unlocked(env_file: Path) -> dict[str, Any]
 
     if _held_session is not None:
         state = await _probe_held_session_state()
-        if _held_session is None:
-            state = "unknown"
-        else:
+        if _held_session is not None:
             _held_session.session_state = state
-        if state == "login_qr" and _held_session is not None and _held_session.bootstrap.config.headless:
-            await _open_visible_held_session(env_file)
-            state = _held_session.session_state or "login_qr"
-        else:
-            _held_session.session_state = state
-            state = await _close_held_session_if_authorized_headless(env_file, state=state) or state
+            if state == "login_qr" and _held_session.bootstrap.config.headless:
+                await _open_visible_held_session(env_file)
+                state = _held_session.session_state or "login_qr"
+            else:
+                state = await _close_held_session_if_authorized_headless(env_file, state=state) or state
 
-        if _held_session is None:
-            bootstrap = load_env_before_browser(env_file)
+            if _held_session is None:
+                bootstrap = load_env_before_browser(env_file)
+                payload = auth_status_fields(
+                    state,
+                    session_active=False,
+                    headless=bootstrap.config.headless,
+                )
+                payload["ok"] = is_whatsapp_authorized(state)
+                return payload
+
             payload = auth_status_fields(
                 state,
-                session_active=False,
-                headless=bootstrap.config.headless,
+                session_active=True,
+                headless=_held_session.bootstrap.config.headless,
             )
             payload["ok"] = is_whatsapp_authorized(state)
+            if not payload["ok"]:
+                payload["message"] = "Escaneie o QR Code na janela do Edge para autorizar o WhatsApp Web."
             return payload
-
-        payload = auth_status_fields(
-            state,
-            session_active=True,
-            headless=_held_session.bootstrap.config.headless,
-        )
-        payload["ok"] = is_whatsapp_authorized(state)
-        if not payload["ok"]:
-            payload["message"] = "Escaneie o QR Code na janela do Edge para autorizar o WhatsApp Web."
-        return payload
 
     # Sem sessão: headless primeiro — visível só se precisar de QR.
     state, _opened_visible = await _probe_auth_headless(env_file)

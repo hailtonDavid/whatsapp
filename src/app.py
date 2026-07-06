@@ -183,7 +183,9 @@ def create_app(
     app.config["DEFAULT_GROUPS_OUTPUT"] = default_groups_output or DEFAULT_GROUPS_OUTPUT
     app.config["DEFAULT_GROUPS_TARGETS"] = default_groups_targets or DEFAULT_GROUPS_TARGETS
     app.config["DEFAULT_CONTACTS_OUTPUT"] = default_contacts_output or DEFAULT_CONTACTS_OUTPUT
-    app.config["DASHBOARD_HTML"] = _load_dashboard_html()
+    app.config["DASHBOARD_HTML"] = _load_dashboard_html().replace(
+        "__APP_UI_VERSION__", APP_UI_VERSION
+    )
 
     def _serve_dashboard():
         return Response(
@@ -309,7 +311,7 @@ def create_app(
         try:
             outcome = run_automation_coroutine(
                 ensure_whatsapp_authorized(Path(app.config["ENV_FILE"])),
-                timeout=45,
+                timeout=120,
             )
         except RuntimeError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
@@ -390,6 +392,16 @@ def create_app(
                         ),
                     }
                 ), 504
+            except Exception as exc:
+                return jsonify(
+                    {
+                        "automation_status": "failed",
+                        "error": (
+                            "Falha ao abrir o WhatsApp Web. Feche janelas antigas do Edge "
+                            f"e tente «Abrir visível (QR Code)». Detalhe: {exc}"
+                        ),
+                    }
+                ), 503
 
             active_headless = get_held_automation_headless()
             try:

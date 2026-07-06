@@ -3,7 +3,7 @@
 Repositórios:
 
 - GitHub: https://github.com/hailtonDavid/whatsapp
-- Gitea: http://localhost:8031/hailtonDavid/whatsapp
+- Gitea: http://localhost:8030/hailtonDavid/whatsapp
 
 Esta versão permite configurar uma lista de grupos, contatos ou telefones em um arquivo JSON.
 O programa abre cada conversa automaticamente, baixa as mensagens visíveis, rola o histórico e repete o ciclo.
