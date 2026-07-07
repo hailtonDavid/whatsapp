@@ -162,6 +162,42 @@ def _parse_conversations_read_payload(*, default_targets: str) -> dict:
     }
 
 
+def _friendly_automation_error(exc: Exception) -> str:
+    message = str(exc).strip()
+    if "Executable doesn't exist" in message or "launch_persistent_context" in message:
+        return (
+            "Navegador Playwright indisponível no servidor. "
+            "No Docker: docker compose up -d --build. "
+            "No Windows: pip install -r requirements.txt && playwright install msedge."
+        )
+    if len(message) > 400:
+        return message[:400] + "…"
+    return message or "Falha na automação do WhatsApp Web."
+
+
+def _run_automation_job(
+    coro,
+    *,
+    config,
+    heavy: bool = True,
+    timeout_message: str,
+):
+    """Executa job Playwright e converte exceções em respostas JSON amigáveis."""
+    try:
+        return run_automation_coroutine(
+            coro,
+            timeout=automation_job_timeout(config, heavy=heavy),
+        ), None
+    except RuntimeError as exc:
+        return None, (400, {"ok": False, "error": str(exc)})
+    except ValueError as exc:
+        return None, (422, {"ok": False, "error": str(exc)})
+    except TimeoutError:
+        return None, (504, {"ok": False, "error": timeout_message})
+    except Exception as exc:
+        return None, (503, {"ok": False, "error": _friendly_automation_error(exc)})
+
+
 def create_app(
     env_file: Path | None = None,
     *,
@@ -878,24 +914,22 @@ def create_app(
         data = _parse_conversations_read_payload(default_targets=app.config["DEFAULT_TARGETS"])
         targets_file = resolve_project_path(Path(data["targets"]))
 
-        try:
-            config = app.config["APP_CONFIG"]
-            outcome = run_automation_coroutine(
-                execute_read_conversations_job(
-                    Path(app.config["ENV_FILE"]),
-                    targets_path=targets_file,
-                    target_ids=data["target_ids"],
-                    phones=data["phones"],
-                    scrolls=data["scrolls"],
-                ),
-                timeout=automation_job_timeout(config, heavy=True),
-            )
-        except RuntimeError as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 400
-        except ValueError as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 422
-        except TimeoutError:
-            return jsonify({"ok": False, "error": "Tempo esgotado ao ler conversas."}), 504
+        config = app.config["APP_CONFIG"]
+        outcome, error_response = _run_automation_job(
+            execute_read_conversations_job(
+                Path(app.config["ENV_FILE"]),
+                targets_path=targets_file,
+                target_ids=data["target_ids"],
+                phones=data["phones"],
+                scrolls=data["scrolls"],
+            ),
+            config=config,
+            heavy=True,
+            timeout_message="Tempo esgotado ao ler conversas.",
+        )
+        if error_response is not None:
+            status, payload = error_response
+            return jsonify(payload), status
 
         if outcome.get("busy"):
             return jsonify(outcome), 409
@@ -913,24 +947,22 @@ def create_app(
         data = _parse_conversations_read_payload(default_targets=app.config["DEFAULT_TARGETS"])
         targets_file = resolve_project_path(Path(data["targets"]))
 
-        try:
-            config = app.config["APP_CONFIG"]
-            outcome = run_automation_coroutine(
-                execute_preview_conversation_job(
-                    Path(app.config["ENV_FILE"]),
-                    targets_path=targets_file,
-                    target_ids=data["target_ids"],
-                    phones=data["phones"],
-                    scrolls=data["scrolls"],
-                ),
-                timeout=automation_job_timeout(config, heavy=True),
-            )
-        except RuntimeError as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 400
-        except ValueError as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 422
-        except TimeoutError:
-            return jsonify({"ok": False, "error": "Tempo esgotado ao ler a conversa."}), 504
+        config = app.config["APP_CONFIG"]
+        outcome, error_response = _run_automation_job(
+            execute_preview_conversation_job(
+                Path(app.config["ENV_FILE"]),
+                targets_path=targets_file,
+                target_ids=data["target_ids"],
+                phones=data["phones"],
+                scrolls=data["scrolls"],
+            ),
+            config=config,
+            heavy=True,
+            timeout_message="Tempo esgotado ao ler a conversa.",
+        )
+        if error_response is not None:
+            status, payload = error_response
+            return jsonify(payload), status
 
         if outcome.get("busy"):
             return jsonify(outcome), 409

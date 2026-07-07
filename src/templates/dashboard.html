@@ -625,7 +625,12 @@
 
     function humanError(body) {
       if (!body) return "Erro desconhecido";
-      if (typeof body === "string") return body;
+      if (typeof body === "string") {
+        if (body.includes("Internal Server Error")) {
+          return "Erro interno do servidor. Verifique se o WhatsApp está conectado e os logs do Flask/Docker.";
+        }
+        return body.length > 240 ? body.slice(0, 240) + "…" : body;
+      }
       if (body.error) {
         if (typeof body.error === "string") return body.error;
         if (body.error.error) return String(body.error.error);
@@ -1675,7 +1680,10 @@
       const qs = new URLSearchParams();
       if (selection.phone) qs.set("phone", selection.phone);
       else qs.set("target_id", selection.target_id);
-      await api(`/api/conversations?${qs.toString()}`);
+      const result = await api(`/api/conversations?${qs.toString()}`);
+      if (!result.ok && result.status === 404) {
+        toast("Nenhuma conversa salva no MongoDB para este número. Use «Ler mensagens» e salve as selecionadas.", "err");
+      }
     });
     document.getElementById("btn-list-conversations").addEventListener("click", () => api("/api/conversations/list"));
 

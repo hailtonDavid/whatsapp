@@ -1,5 +1,6 @@
 # WhatsApp Web Automation — painel Flask + Playwright
-FROM mcr.microsoft.com/playwright/python:v1.49.1-jammy
+# A tag da imagem deve coincidir com playwright em requirements.txt
+FROM mcr.microsoft.com/playwright/python:v1.61.0-jammy
 
 WORKDIR /app
 
